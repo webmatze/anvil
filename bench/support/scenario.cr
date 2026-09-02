@@ -93,8 +93,8 @@ module Bench::Scenario
       span = w - 4
       filled = ((f % 120) * span) // 120
       inside = x - 2
-      return inside < filled ? Cell.new('█', 80_u8, 160_u8, 240_u8, 0_u8, 0_u8, 0_u8)
-                             : Cell.new('░', 50_u8, 50_u8, 70_u8, 0_u8, 0_u8, 0_u8)
+      return Cell.new('█', 80_u8, 160_u8, 240_u8, 0_u8, 0_u8, 0_u8) if inside < filled
+      return Cell.new('░', 50_u8, 50_u8, 70_u8, 0_u8, 0_u8, 0_u8)
     end
 
     # Scrolling bar chart occupying the lower two thirds

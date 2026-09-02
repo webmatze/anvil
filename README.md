@@ -1,5 +1,7 @@
 # anvil
 
+[![CI](https://github.com/webmatze/anvil/actions/workflows/ci.yml/badge.svg)](https://github.com/webmatze/anvil/actions/workflows/ci.yml)
+
 A terminal UI library for Crystal, with two modes of operation:
 
 - **Inline** — the scrollback stays intact; only a live region at the bottom is

@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: 1.21.0
+
+      - name: Install dependencies
+        run: shards install
+
+      - name: Check formatting
+        run: crystal tool format --check src spec bench examples
+
+      - name: Specs
+        run: crystal spec
+
+      # The specs deliberately never touch a terminal, so the parts that only
+      # exist as escape sequences — the inline region, the signal restore, a
+      # whole session — are checked separately, each on a real PTY.
+      - name: Build the demos and the benchmark
+        run: |
+          mkdir -p bin
+          crystal build examples/inline_demo.cr -o bin/inline_demo
+          crystal build examples/agent_demo.cr -o bin/agent_demo
+          crystal build --release bench/anvil_bench.cr -o bin/anvil
+
+      - name: Inline rendering on a PTY
+        run: python3 examples/check_inline.py
+
+      - name: A full session on a PTY
+        run: python3 examples/check_demo.py
+
+      - name: Terminal restored on exit and on SIGINT
+        run: python3 bench/restore_check.py anvil
