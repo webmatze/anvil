@@ -1,256 +1,249 @@
-# Entwurf: eine wiederverwendbare TUI-Library für Crystal
+# Design: a reusable TUI library for Crystal
 
-Grundlage: [BENCHMARK.md](BENCHMARK.md) (Wahl des Unterbaus) und
-[SMITH-REQUIREMENTS.md](SMITH-REQUIREMENTS.md) (was smith braucht).
+Grounded in [BENCHMARK.md](BENCHMARK.md) (choosing the foundation) and
+[SMITH-REQUIREMENTS.md](SMITH-REQUIREMENTS.md) (what smith needs).
 
-## Ziel
+## Goal
 
-Eine Library, die beide Betriebsarten trägt, die du tatsächlich baust:
+A library that carries both modes of operation that actually get built:
 
-- **Fullscreen** — Alt-Screen, App besitzt das Raster, 30/60 fps, flickerfrei.
-- **Inline** — Scrollback bleibt erhalten, nur eine Live-Region am unteren Rand wird
-  neu gezeichnet. Das Modell von smith und Claude Code.
+- **Fullscreen** — alternate screen, the app owns the grid, 30/60 fps, tear-free.
+- **Inline** — the scrollback stays, only a live region at the bottom is redrawn. The
+  model smith and Claude Code use.
 
-Unterbau ist [termisu](https://github.com/omarluq/termisu): gemessen bester Byte-Verbrauch
-pro Frame, 0,97 MB Binary, Sekunden Build-Zeit, und es liefert die fehleranfälligsten
-Teile fertig (Key-Parsing, Unicode-Breiten, Cell-Diff, Raw-Mode-Details).
+The foundation is [termisu](https://github.com/omarluq/termisu): measured best on bytes
+per frame, 0.97 MB of binary, seconds of build time, and it supplies the most error-prone
+parts ready-made (key parsing, Unicode widths, cell diff, raw-mode details).
 
 ## Name
 
-`anvil`. Der Schmied arbeitet am Amboss — der Name paart sich mit `smith` und beschreibt
-zugleich, was die Library ist: die Fläche, auf der geformt wird (`Anvil::Surface`).
-Im Crystal-Ökosystem frei; der bisherige Arbeitsname `crystal_tui` war durch
-`skuznetsov/crystal_tui` belegt. Der Repo-Name bleibt `crystal_tui`.
+`anvil`. A smith works at an anvil — the name pairs with `smith` and at the same time
+describes what the library is: the surface things are shaped on (`Anvil::Surface`). Free
+in the Crystal ecosystem; the working name `crystal_tui` was taken by
+`skuznetsov/crystal_tui`. Published as `webmatze/anvil`.
 
-## Architektur
+## Architecture
 
 ```
                     termisu
-   Raw-Mode · Key-Parsing · Größe · Cell-Buffer+Diff · Unicode-Breiten
+   raw mode · key parsing · size · cell buffer + diff · Unicode widths
                        │
         ┌──────────────┴───────────────┐
-        │      Anvil::Surface          │   ← der eine Seam, der die Modi trennt
+        │      Anvil::Surface          │   ← the one seam separating the modes
         ├──────────────┬───────────────┤
         │  Fullscreen  │    Inline     │
-        │  (Alt-Screen)│ (Live-Region) │
+        │  (alt screen)│ (live region) │
         └──────────────┴───────────────┘
                        │
    Anvil::Text     Style · Span · StyledLine · wrap · truncate · Palette
                        │
-   Anvil::View     Block · Region-Komposition mit Drop-Priorität
+   Anvil::View     Block · region composition with drop priority
                        │
-   Anvil::App      Loop · Zustandsmaschine · Modals · Resize-Debounce · Signale
+   Anvil::App      loop · state machine · modals · resize debounce · signals
                        │
-   Anvil::Widgets  InputEditor · ListPopup · StatusBar
+   Anvil::Widgets  InputEditor · ListPopup
 ```
 
-Nur `Surface` kennt den Unterschied zwischen den Modi. Alles darüber ist gemeinsam —
-das ist der Punkt, an dem sich die Library für beide Projektarten rentiert.
+Only `Surface` knows the difference between the modes. Everything above it is shared —
+which is the point at which the library pays off for both kinds of project.
 
-## Die zwei Surfaces
+## The two surfaces
 
-Gemeinsames Protokoll:
+A shared protocol: size, `put_cell` / `put`, `begin_frame` / `end_frame`, `invalidate!`,
+plus the capabilities only inline really has (`commit`, `height=`, `max_height`,
+`cursor_at`, `clear_screen`) with harmless defaults, so the same app layer runs on either.
 
-```crystal
-abstract class Anvil::Surface
-  abstract def size : {Int32, Int32}
-  abstract def begin_frame : Nil
-  abstract def put(x : Int32, y : Int32, line : Text::StyledLine) : Nil
-  abstract def end_frame : Nil          # ein Flush, Synchronized Output
-  abstract def invalidate! : Nil        # nächster Frame ist ein Vollaufbau
-  abstract def cursor(x : Int32, y : Int32) : Nil
-end
-```
+**Fullscreen** is thin: `Termisu.new`, `set_cell`, `render`. The benchmark numbers apply
+unchanged.
 
-**Fullscreen** ist dünn: `Termisu.new`, `set_cell`, `render`. Die Benchmark-Zahlen gelten
-unverändert.
+**Inline** is the part we build. termisu's facade unconditionally enters the alternate
+screen in its constructor — but `Termisu::Terminal`, `Reader`, `Input::Parser`,
+`Event::Loop` and the `Event::Source::*` classes are all public. So the stack is assembled
+by hand, exactly as `Termisu#initialize` does, minus `enter_alternate_screen`.
+**Verified.**
 
-**Inline** ist der Eigenanteil. termisus Fassade betritt im Konstruktor bedingungslos den
-Alt-Screen — aber `Termisu::Terminal`, `Reader`, `Input::Parser`, `Event::Loop` und die
-`Event::Source::*` sind alle öffentlich. Der Stack wird also von Hand zusammengesetzt,
-genau wie `Termisu#initialize` es tut, nur ohne `enter_alternate_screen`. **Verifiziert.**
+For drawing the region: `Buffer#render_to(renderer)` accepts any `Renderer`
+implementation. `Anvil::InlineRenderer` translates `move_cursor(x, y)` into relative
+movement inside the region — the interface passes `columns_advanced` through every
+`write`, so cursor tracking is provided for.
 
-Für das Zeichnen der Region: `Termisu::Terminal < Termisu::Renderer`, und
-`Buffer#render_to(renderer)` nimmt jede `Renderer`-Implementierung. Ein
-`Anvil::InlineRenderer` delegiert alles an das echte Terminal und übersetzt nur
-`move_cursor(x, y)` in relative Bewegungen innerhalb der Region — die Schnittstelle
-reicht `columns_advanced` durch jede `write`, das Cursor-Tracking ist also vorgesehen.
+That way the inline mode inherits termisu's cell diff, SGR coalescing and wide-character
+logic instead of reimplementing them.
 
-Damit erbt der Inline-Modus termisus Cell-Diff, SGR-Coalescing und Wide-Char-Logik,
-statt sie nachzubauen.
+> **A correction to SMITH-REQUIREMENTS.md:** it says a line-level diff is the
+> alternative. It is — but it gives away exactly the tested parts termisu was chosen for.
+> The `InlineRenderer` is the better route. Should relative addressing prove awkward, the
+> line diff (~60 lines) is the documented fallback. **Step 1 of the plan is precisely
+> that test**, before anything is built on top.
 
-> **Korrektur zu SMITH-REQUIREMENTS.md:** dort steht, ein Zeilen-Diff sei die Alternative.
-> Ist er — aber er verschenkt genau die getesteten Teile, für die termisu ausgewählt
-> wurde. Der `InlineRenderer` ist der bessere Weg. Falls die relative Adressierung sich
-> als zäh erweist, ist der Zeilen-Diff (~60 Zeilen) der dokumentierte Rückfall.
-> **Schritt 1 des Plans ist genau dieser Test**, bevor Arbeit darauf aufbaut.
+Rules the inline mode has to keep (all learned from smith):
 
-Regeln, die der Inline-Modus einhalten muss (alle aus smiths Erfahrung):
+1. **One region line = exactly one terminal row.** Wrapping happens while composing, not
+   while writing — otherwise clearing the old region falls out of step with the screen.
+2. **The region height is variable.** Growing asks for rows with `\n` (the terminal
+   scrolls); shrinking erases the surplus ones.
+3. **Committing to the scrollback:** clear the region → write the finished blocks with
+   `\n` → rebuild the region below them. Then `invalidate!`, because the screen has
+   shifted underneath the front buffer.
+4. **Foreign output corrupts the screen.** A subprocess writing to STDOUT invalidates the
+   front buffer. `invalidate!` is the way out, and Ctrl-L the user-facing one. (An
+   `IO` that routes such writes into notice blocks — smith has one as `NoticeIO` — is
+   worth lifting into the library, but is not part of v1.)
 
-1. **Eine Regionszeile = genau eine Terminalzeile.** Umbrüche passieren beim Komponieren,
-   nicht beim Schreiben — sonst geht das Aufräumen der alten Region gegen den Bildschirm
-   aus dem Takt.
-2. **Regionshöhe ist variabel.** Wächst sie, werden Zeilen per `\n` angefordert (das
-   Terminal scrollt); schrumpft sie, werden die überzähligen gelöscht.
-3. **Commit in den Scrollback:** Region abräumen → fertige Blöcke mit `\n` ausgeben →
-   Region darunter neu aufbauen. Danach `invalidate!`, denn der Bildschirm hat sich
-   unter dem Front-Buffer verschoben.
-4. **Fremdausgabe korrumpiert den Bildschirm.** Ein Subprozess, der nach STDOUT schreibt,
-   macht den Front-Buffer ungültig. Die Library liefert dafür ein `CaptureIO`, das
-   solche Schreibvorgänge in Notice-Blöcke umleitet (smith hat das als `NoticeIO`), plus
-   `invalidate!` als Notausgang für Ctrl-L.
+## Modules and size
 
-## Module und Umfang
-
-| Modul | Inhalt | geschätzt |
+| Module | Content | estimated |
 |---|---|---|
-| `Anvil::Text` | `Style` (merge, ANSI), `Span`, `StyledLine`, `wrap` über Span-Grenzen, `truncate`, `Palette`; Breiten aus termisus `unicode_width` | ~320 |
-| `Anvil::Surface` | Protokoll + `Fullscreen` + `Inline` + `InlineRenderer` | ~380 |
-| `Anvil::View` | `Block`-Protokoll (`lines(width)`, `finalized?`), Region-Komposition mit Drop-Priorität (auf zu kleinem Schirm fällt Unwichtiges zuerst) | ~180 |
-| `Anvil::App` | Loop, Dirty-Flag, Zustandsmaschine, `Channel`-Modals, `modal_sync`, Resize-Debounce, Signal-Restore, Ctrl-L, doppeltes Ctrl-C | ~420 |
-| `Anvil::Widgets` | `InputEditor` (History, Ctrl-A/E/B/F/U/K/W, Paste-Flattening, horizontaler Scroll), `ListPopup` (Filter, Auswahl, Fenster), `StatusBar` | ~330 |
+| `Anvil::Text` | `Style` (merge, ANSI), `Span`, `StyledLine`, `wrap` across span boundaries, `truncate`, `Palette`; widths from termisu's `unicode_width` | ~320 |
+| `Anvil::Surface` | protocol + `Fullscreen` + `Inline` + `InlineRenderer` | ~380 |
+| `Anvil::View` | the `Block` protocol (`lines(width)`, `finalized?`), region composition with drop priority (on a screen too small, the unimportant goes first) | ~180 |
+| `Anvil::App` | loop, dirty flag, state machine, `Channel` modals, a synchronous modal, resize debounce, signal restore, Ctrl-L, double Ctrl-C | ~420 |
+| `Anvil::Widgets` | `InputEditor` (history, Ctrl-A/E/B/F/U/K/W, paste flattening, horizontal scroll), `ListPopup` (filter, selection, window) | ~330 |
 | `Anvil::Markdown` | optional, Markdown → `StyledLine` | ~230 |
 
-Rund 1 600 Zeilen ohne Markdown. Ersetzt bei smith ~1 790.
+Around 1,600 lines without Markdown. Replaces ~1,790 in smith.
 
-## Bauabschnitte
+## Build stages
 
-Jeder Abschnitt endet lauffähig und überprüfbar.
+Each stage ends runnable and verifiable.
 
-### 1. Spike: InlineRenderer ✅ erledigt
-termisu-Stack ohne Alt-Screen zusammensetzen, `Buffer` in eine 5-zeilige Region am
-unteren Rand rendern, Region wachsen/schrumpfen lassen, Text in den Scrollback
-committen.
-*Ergebnis:* trägt. `Anvil::InlineRenderer` (~90 Zeilen) zeichnet über termisus
-`Buffer`, adressiert vertikal relativ (CUU/CUD) und horizontal absolut (CHA, weil die
-Region immer in Spalte 0 beginnt — das spart die gesamte Spaltenbuchhaltung).
-`examples/check_inline.py` prüft headless: kein Alt-Screen, kein Vollbild-Clear, Scrollback
-vollständig und in Reihenfolge, 0 absolute Cursorpositionierungen. Im echten Terminal
-bestätigt: Wachsen 3→6, Schrumpfen 6→2 und drei Commits ohne Reste und ohne Flackern.
-Der Zeilen-Diff als Rückfall wird nicht gebraucht.
+### 1. Spike: InlineRenderer ✅ done
+Assemble the termisu stack without the alternate screen, render a `Buffer` into a
+five-line region at the bottom, grow and shrink it, commit text into the scrollback.
 
-### 2. `Anvil::Text` ✅ erledigt
-Reine Datenschicht, komplett gegen `IO::Memory` testbar. `wrap` ist der heikle Teil:
-Umbruch über Span-Grenzen unter Erhalt der Styles, mit CJK- und Emoji-Breiten.
-*Ergebnis:* `src/anvil/text.cr`, 19 Specs grün (`spec/text_spec.cr`). Breiten kommen aus
-`Termisu::UnicodeWidth` statt aus einer zweiten Implementierung — was hier als 79 Spalten
-gilt, muss dort in 79 Zellen passen. `wrap` bricht über Span-Grenzen hinweg, trennt zu
-lange Wörter hart (die Zusage „keine Zeile ist breiter als `width`" trägt die Höhen-
-rechnung der Inline-Region), rechnet mit CJK- und Emoji-Breiten und fasst gleich
-gestylte Grapheme zu einem Span zusammen, damit der Renderer Batches statt Einzelzellen
-bekommt.
+*Result:* it carries. `Anvil::InlineRenderer` (~90 lines) draws through termisu's
+`Buffer`, addresses vertically relative (CUU/CUD) and horizontally absolute (CHA, since
+the region always starts at column 0 — which saves all of the column bookkeeping).
+`examples/check_inline.py` checks headlessly: no alternate screen, no full-screen clear,
+scrollback complete and in order, 0 absolute cursor positionings. Confirmed in a real
+terminal: growing 3→6, shrinking 6→2 and three commits with no remains and no flicker.
+The line diff as a fallback is not needed.
 
-### 3. `Anvil::Surface` ✅ erledigt
-*Ergebnis:* `Anvil::Backend` (Terminal, Eingabe, Ereignisschleife — gemeinsam für beide
-Betriebsarten, mit dem Alt-Screen als Schalter), `Anvil::Surface` als Protokoll,
-`Surface::Fullscreen` und `Surface::Inline`.
+### 2. `Anvil::Text` ✅ done
+A pure data layer, testable entirely against `IO::Memory`. `wrap` is the delicate part:
+wrapping across span boundaries while preserving styles, with CJK and emoji widths.
 
-Der Benchmark ist jetzt Regressionstest (`bin/anvil`, 300 Frames, 200×50, 60 fps):
+*Result:* `src/anvil/text.cr`. Widths come from `Termisu::UnicodeWidth` rather than a
+second implementation — what counts as 79 columns here has to fit into 79 cells there.
+`wrap` crosses span boundaries, breaks over-long words hard (the promise "no line is
+wider than `width`" carries the inline region's height arithmetic), counts CJK and emoji
+widths, and merges equally styled graphemes into one span so the renderer gets batches
+rather than single cells.
 
-| | churn p50 | churn B/Frame | dashboard p50 | dashboard B/Frame |
+### 3. `Anvil::Surface` ✅ done
+*Result:* `Anvil::Backend` (terminal, input, event loop — shared by both modes, with the
+alternate screen as a switch), `Anvil::Surface` as the protocol, `Surface::Fullscreen` and
+`Surface::Inline`.
+
+The benchmark is now a regression test (`bin/anvil`, 300 frames, 200×50, 60 fps):
+
+| | churn p50 | churn B/frame | dashboard p50 | dashboard B/frame |
 |---|---:|---:|---:|---:|
-| termisu direkt | 4,36 ms | 312 580 | 2,29 ms | 6 835 |
-| durch die Surface | 4,42 ms | **312 581** | 1,63 ms | 6 836 |
+| raw termisu | 4.36 ms | 312,580 | 2.29 ms | 6,835 |
+| through the surface | 4.42 ms | **312,581** | 1.63 ms | 6,836 |
 
-Die Abstraktion kostet nichts: byte-identisch bis auf die Stelle, an der die
-Frame-Nummer eine Ziffer mehr hat. Die bessere Frame-Zeit im Dashboard-Fall kommt nicht
-von der Surface, sondern vom Fixed-Timestep-Loop des Benchmarks gegenüber termisus
-Tick-Schleife — er trifft auch die Cadence besser (59,9 statt 57,8 fps), was die
-gemessene Timer-Drift bestätigt.
+The abstraction costs nothing: byte-identical but for the place where the frame number
+has one more digit. The better frame time in the dashboard case does not come from the
+surface but from the benchmark's fixed-timestep loop against termisu's tick loop — which
+also hits the cadence better (59.9 instead of 57.8 fps), confirming the measured timer
+drift.
 
-Die Inline-Surface besteht dieselben Prüfungen wie der Spike, jetzt gegen den
-Produktionscode (`examples/inline_demo.cr`, `examples/check_inline.py`): kein Alt-Screen, kein
-Vollbild-Clear, Scrollback vollständig, 0 absolute Cursorpositionierungen.
+The inline surface passes the same checks as the spike, now against production code
+(`examples/inline_demo.cr`, `examples/check_inline.py`).
 
-Das Signal-Handling im `Backend` schließt die im Benchmark gemessene termisu-Lücke —
-`bench/restore_check.py` bei SIGINT:
+The signal handling in `Backend` closes the termisu gap the benchmark measured —
+`bench/restore_check.py` on SIGINT:
 
-| | Alt-Screen verlassen | Cursor sichtbar |
+| | leaves the alternate screen | cursor visible |
 |---|---|---|
-| termisu direkt | nein | nein |
-| durch `Anvil::Backend` | **ja** | **ja** |
+| raw termisu | no | no |
+| through `Anvil::Backend` | **yes** | **yes** |
 
-### 4. `Anvil::View` + `Anvil::Widgets` ✅ erledigt
-*Ergebnis:* `View::Block`/`TextBlock`, `View::Segment`/`Region.compose`,
-`Widgets::InputEditor`, `Widgets::ListPopup(T)`. 48 Specs grün, alle ohne Terminal —
-Tastenereignisse werden in `spec/spec_helper.cr` direkt gebaut.
+### 4. `Anvil::View` + `Anvil::Widgets` ✅ done
+*Result:* `View::Block`/`TextBlock`, `View::Segment`/`Region.compose`,
+`Widgets::InputEditor`, `Widgets::ListPopup(T)`. All specs run without a terminal — key
+events are built directly in `spec/spec_helper.cr`.
 
-Zwei Dinge aus smiths Code übernommen, die man sonst erst durch Schaden lernt:
+Two things taken from smith's code that one otherwise learns the hard way:
 
-- **Die Region darf nie höher als der Bildschirm werden.** `cursor_up` stoppt an der
-  obersten Zeile, eine höhere Region ließe sich nie zurücklaufen — jeder Redraw schöbe
-  eine weitere Kopie in den Scrollback. `Surface::Inline#max_height` deckelt das jetzt,
-  `Region.compose` wirft nicht-angeheftete Zeilen weg (älteste zuerst, hinter einer
-  Marke), und angeheftete — Statusleiste, Eingabezeile — bleiben immer.
-- **Bracketed Paste gehört eingeschaltet** (`\e[?2004h` im `Backend`). Ohne das ist
-  eingefügter Text nicht von getipptem zu unterscheiden, und mehrzeiliges Einfügen löst
-  pro Zeile ein Absenden aus. Der Editor behandelt `PasteStart`/`PasteEnd` und glättet
-  Umbrüche zu Leerzeichen.
+- **The region must never be taller than the screen.** `cursor_up` stops at the top row,
+  so a taller region could never be walked back over — every redraw would push another
+  copy into the scrollback. `Surface::Inline#max_height` caps it, `Region.compose` drops
+  unpinned lines (oldest first, behind a marker), and pinned ones — status bar, input
+  line — always stay.
+- **Bracketed paste has to be switched on** (`\e[?2004h` in `Backend`). Without it,
+  pasted text is indistinguishable from typed text and a multi-line paste submits once
+  per line. The editor handles `PasteStart`/`PasteEnd` and flattens newlines to spaces.
 
-### 5. `Anvil::App` ✅ erledigt
-*Ergebnis:* `Anvil::Loop` (Takt, Drift-Korrektur, Resize-Entprellung) getrennt von
-`Anvil::App` (Blöcke, Live-Region, Modals, Zustandsmaschine) — so kann eine
-Vollbild-Anwendung die Schleife ohne die Block-Maschinerie nutzen.
+### 5. `Anvil::App` ✅ done
+*Result:* `Anvil::Loop` (tick, drift correction, resize debounce) kept apart from
+`Anvil::App` (blocks, live region, modals, state machine) — so a fullscreen application
+can use the loop without the block machinery.
 
-Zwei Nähte für die Testbarkeit, die die Architektur nebenbei verbessert haben:
-`Loop` nimmt die Ereignisquelle als `Proc` statt als `Backend`, und `Surface::Memory`
-ist eine Zeichenfläche im Speicher. Dadurch läuft `App` gegen `Surface` statt gegen
-`Surface::Inline`, und die Specs brauchen kein Terminal.
+Two seams for testability that improved the architecture along the way: `Loop` takes its
+event source as a `Proc` rather than a `Backend`, and `Surface::Memory` is a drawing
+surface in memory. As a result `App` works against `Surface` rather than
+`Surface::Inline`, and the specs need no terminal.
 
-**Ein echter Fehler, den die Specs aufgedeckt haben:** der Parser liefert Ctrl-Tasten als
-Key-Enum mit leerem `char` (Ctrl-A ist `Key::LowerA` plus Modifier). Der erste Entwurf
-las `event.char` und hätte am echten Terminal *keine* Ctrl-Taste getroffen — weder
-Ctrl-L noch die Editor-Kürzel. Der Spec-Helfer bildet das Verhalten des Parsers jetzt
-genau nach, statt ein `char` mitzugeben und den Fehler zu verdecken.
+**A real bug the specs uncovered:** the parser delivers Ctrl keys as a key enum with an
+empty `char` (Ctrl-A is `Key::LowerA` plus the modifier). The first draft read
+`event.char` and would have matched *no* Ctrl key on a real terminal — neither Ctrl-L nor
+the editor shortcuts. The spec helper now imitates the parser's behaviour exactly instead
+of supplying a `char` and hiding the bug.
 
-68 Specs grün. `bench/restore_check.py` bestätigt sauberes Aufräumen bei normalem Ende
-und bei SIGINT; `examples/check_demo.py` fährt eine vollständige Sitzung durch ein PTY
-(tippen, streamen, modale Rückfrage beantworten, beenden) und prüft zehn Eigenschaften
-der Ausgabe.
+`bench/restore_check.py` confirms clean cleanup on a normal exit and on SIGINT;
+`examples/check_demo.py` plays a complete session through a PTY (typing, streaming,
+answering a modal question, quitting) and asserts on twelve properties of the output.
 
-### 6. Inline-Szenario im Benchmark ✅ erledigt
-*Ergebnis:* `bench/inline_bench.cr`, 300 Frames bei 60 fps, 200 Spalten:
+### 6. An inline scenario in the benchmark ✅ done
+*Result:* `bench/inline_bench.cr`, 300 frames at 60 fps, 200 columns:
 
-| Region | geänderte Zeilen | Bytes/Redraw | p50 | CPU |
+| Region | changed lines | bytes/redraw | p50 | CPU |
 |---:|---:|---:|---:|---:|
-| 15 | 2 | **118** | 0,082 ms | 1,5 % |
-| 20 | 4 | 198 | 0,111 ms | 1,8 % |
-| 40 | 2 | 137 | 0,188 ms | 2,6 % |
+| 15 | 2 | **118** | 0.082 ms | 1.5 % |
+| 20 | 4 | 198 | 0.111 ms | 1.8 % |
+| 40 | 2 | 137 | 0.188 ms | 2.6 % |
 
-Zum Vergleich das Vollbild-Dashboard auf 200×50: 6 836 Bytes pro Frame.
+For comparison, the fullscreen dashboard at 200×50: 6,836 bytes per frame.
 
-Der Befund dahinter ist wichtiger als die absoluten Zahlen: **die Regionshöhe kostet
-fast nichts, nur Veränderung kostet.** Eine Region von 40 Zeilen mit zwei bewegten
-kostet 137 Bytes, eine von 15 Zeilen mit denselben zwei kostet 118. Der Diff arbeitet,
-und eine Inline-App ist damit selbst bei 60 fps rund zwei Größenordnungen günstiger als
-ein Vollbild-Redraw.
+The finding behind it matters more than the absolute numbers: **the region height costs
+almost nothing, only change costs.** A 40-line region with two moving lines costs 137
+bytes, a 15-line one with the same two costs 118. The diff is working, and an inline app
+is therefore about two orders of magnitude cheaper than a fullscreen redraw even at
+60 fps.
 
-## smith-Migration in zwei Phasen
+## The smith migration, in two phases
 
-**Phase A — ohne Rendering-Änderung.** smith ersetzt `style.cr`, `input_editor.cr`,
-`completions.cr` durch die Library, behält aber `terminal.cr` und `app.cr`. Reine
-Datenschichten, geringes Risiko, smith bleibt jederzeit lauffähig. Prüfung: bestehende
-Specs plus Sichtvergleich.
+**Phase A — no change to rendering.** smith replaces `style.cr`, `input_editor.cr` and
+`completions.cr` with the library but keeps `terminal.cr` and `app.cr`. Pure data layers,
+low risk, smith runnable throughout. Verified by the existing specs plus a visual check.
 
-**Phase B — die Schleife.** `terminal.cr` und der Großteil von `app.cr` weichen
-`Anvil::App` mit `Surface::Inline`. In smith bleibt, was Domäne ist: `renderer.cr`,
-`gates.cr`, die konkreten Block-Typen, der Inhalt der Statusleiste.
+**Phase B — the loop.** `terminal.cr` and most of `app.cr` give way to `Anvil::App` with
+`Surface::Inline`. What stays in smith is domain: `renderer.cr`, `gates.cr`, the concrete
+block types, the contents of the status bar.
 
-Getrennte Phasen, weil Phase B die riskante ist — eine kaputte Eingabeschleife macht das
-Werkzeug unbenutzbar, und Phase A stellt vorher sicher, dass die Datenschichten stimmen.
+Separate phases because B is the risky one — a broken input loop makes the tool unusable,
+and A establishes first that the data layers are right.
 
-## Teststrategie
+Both phases are done. Between them they took `src/smith/ui` from 2,699 to 1,392 lines,
+and turned up three real bugs in anvil that neither the benchmark nor anvil's own specs
+had found: the rebuild after a resize, animation stopping while busy, and the region
+asking for too many rows after a commit. A library proves itself at its first real user,
+not at its own tests.
 
-- **Datenschichten** (`Text`, `View`, `Widgets`) gegen `IO::Memory` — kein Terminal nötig.
-  smith hat seinen `KeyParser` genau dafür herausgezogen; das Muster wird beibehalten.
-- **Surfaces** gegen eine `Renderer`-Implementierung, die in einen String schreibt: Specs
-  behaupten über die erzeugte Byte-Folge, nicht über Pixel.
-- **End-to-End** über `bench/pty_run.py` (echtes PTY fester Größe) und
-  `bench/restore_check.py` (Aufräumen bei Signal).
-- **Performance** über `bench/run.sh` gegen `bin/baseline` als Regressionsschwelle.
+## Test strategy
 
-## Was bewusst nicht hineinkommt
+- **Data layers** (`Text`, `View`, `Widgets`) against `IO::Memory` — no terminal needed.
+  smith extracted its `KeyParser` for exactly this reason; the pattern is kept.
+- **Surfaces** against a renderer writing into a string: specs assert on the byte stream
+  produced, not on pixels.
+- **End to end** through `bench/pty_run.py` (a real PTY of fixed size),
+  `examples/check_demo.py` and `bench/restore_check.py` (cleanup on a signal).
+- **Performance** through `bench/run.sh` against `bin/baseline` as the regression
+  threshold.
 
-Kein CSS, keine Layout-Engine, kein Widget-Zoo. Das ist genau der Weg, auf dem crysterm
-bei 98 000 LOC und 35 MB Binary gelandet ist. Layout bleibt beim Aufrufer: eine
-`StyledLine`-Liste und die Regeln, was auf einem kleinen Schirm zuerst verschwindet.
+## What deliberately stays out
+
+No CSS, no layout engine, no widget zoo. That is exactly the road on which crysterm ended
+up at 98,000 LOC and a 35 MB binary. Layout stays with the caller: a list of `StyledLine`
+and the rules for what disappears first on a small screen.

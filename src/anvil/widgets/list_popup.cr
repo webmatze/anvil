@@ -1,29 +1,29 @@
 require "../text"
 
 module Anvil::Widgets
-  # Gefilterte Auswahlliste über der Eingabezeile — Slash-Kommandos,
-  # Dateivervollständigung, alles dieser Art.
+  # A filtered pick list above the input line — slash commands, file
+  # completion, anything of that shape.
   #
-  # Hält nur den Zustand und liefert Zeilen; wann sie aufgeht und was die
-  # Auswahl bedeutet, entscheidet die App.
+  # It holds state and produces lines; when it opens and what a selection means
+  # is the app's decision.
   class ListPopup(T)
     getter items : Array(T)
     getter selected : Int32
     getter top : Int32
     getter query : String
 
-    # Die vollständige Trefferliste — `visible` ist nur das Fenster darauf.
+    # The complete match list — `visible` is only the window onto it.
     getter matches : Array(T)
 
-    # `label` und `description` sagen, wie ein Eintrag zu Text wird — so
-    # bleibt das Popup unabhängig davon, was es anzeigt.
+    # `label` and `description` say how an entry becomes text — which keeps
+    # the popup independent of what it is showing.
     #
-    # `filter` bestimmt, was auf eine Eingabe passt. Die Vorgabe ist eine
-    # Teilzeichenkette ohne Rücksicht auf Groß- und Kleinschreibung; eine App
-    # mit eigener Vorstellung (Präfixe, Fuzzy-Suche, eigene Sortierung) gibt
-    # ihre eigene mit, statt dass das Popup alle Fälle zu kennen versucht.
+    # `filter` decides what matches a query. The default is a case-insensitive
+    # substring; an app with its own idea (prefixes, fuzzy search, its own
+    # ordering) passes its own instead of the popup trying to know every case.
     #
-    # `wrap_around` sagt, ob die Auswahl am Ende der Liste oben weitermacht.
+    # `wrap_around` says whether the selection continues at the top once it
+    # runs off the end of the list.
     def initialize(@items : Array(T), *, @max_visible : Int32 = 8,
                    @label : T -> String, @description : (T -> String)? = nil,
                    @filter : (Array(T), String -> Array(T))? = nil,
@@ -84,9 +84,9 @@ module Anvil::Widgets
       @matches[@top, @max_visible]? || Array(T).new
     end
 
-    # Hält die Auswahl im sichtbaren Fenster — auch beim Umlauf von unten
-    # nach oben, wo sonst das Fenster stehen bliebe und die Auswahl
-    # verschwände.
+    # Keeps the selection inside the visible window — including when it wraps
+    # from the bottom to the top, where the window would otherwise stay put and
+    # the selection disappear.
     private def scroll_into_view : Nil
       if @selected < @top
         @top = @selected
@@ -94,8 +94,8 @@ module Anvil::Widgets
         @top = @selected - @max_visible + 1
       end
 
-      # Nicht über das Ende hinaus scrollen: sonst zeigt das Fenster bei einer
-      # kurzen Liste Leerzeilen unter dem letzten Eintrag.
+      # Do not scroll past the end: on a short list the window would otherwise
+      # show blank rows below the last entry.
       max_top = @matches.size - @max_visible
       max_top = 0 if max_top < 0
       @top = max_top if @top > max_top

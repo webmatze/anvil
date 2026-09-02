@@ -2,22 +2,21 @@ require "../surface"
 require "./inline_renderer"
 
 module Anvil
-  # Live-Region am unteren Rand des normalen Scrollbacks.
+  # A live region at the bottom of the normal scrollback.
   #
-  # Fertige Inhalte werden einmal in den Scrollback geschrieben und danach nie
-  # wieder angefasst; nur die Region darunter wird neu gezeichnet. Das
-  # Transcript bleibt damit kopier- und durchsuchbar — das Modell von smith
-  # und Claude Code.
+  # Finished content is written to the scrollback once and never touched again;
+  # only the region below it is redrawn. The transcript therefore stays
+  # copyable and searchable — the model smith and Claude Code use.
   #
-  # Gezeichnet wird über `Termisu::Buffer`, die Region erbt also dessen
-  # Cell-Diff, SGR-Coalescing und Wide-Char-Logik.
+  # Drawing goes through `Termisu::Buffer`, so the region inherits its cell
+  # diff, SGR coalescing and wide-character handling.
   class Surface::Inline < Surface
     getter backend : Backend?
     getter height : Int32
     getter io : IO
 
     def initialize(backend : Backend = Backend.new(alternate_screen: false), height : Int32 = 1)
-      raise ArgumentError.new("Inline darf nicht im Alternate Screen laufen") if backend.alternate_screen?
+      raise ArgumentError.new("Inline must not run in the alternate screen") if backend.alternate_screen?
       @backend = backend
       width, screen_height = backend.size
       @io = TerminalIO.new(backend.terminal)
@@ -31,11 +30,11 @@ module Anvil
       start(height)
     end
 
-    # Ohne Terminal: die Region rendert in ein beliebiges `IO`.
+    # Without a terminal: the region renders into any `IO`.
     #
-    # Damit lässt sich prüfen, was tatsächlich hinausginge, ohne ein echtes
-    # Terminal — und eine Anwendung kann ihre Oberfläche in eine Datei
-    # rendern, für Abnahmebilder oder Fehlerberichte.
+    # That makes it possible to inspect what would actually go out without a
+    # real terminal — and lets an application render its interface into a file,
+    # for approval snapshots or bug reports.
     def self.memory(io : IO, width : Int32, screen_height : Int32, height : Int32 = 1) : Inline
       new(io, width, screen_height, height)
     end
@@ -60,11 +59,10 @@ module Anvil
       {@width, @height}
     end
 
-    # Die Region wird an Ort und Stelle neu gezeichnet, und das geht nur,
-    # solange sie auf den Bildschirm passt: `cursor_up` stoppt an der
-    # obersten Zeile, eine höhere Region ließe sich nie zurücklaufen — jeder
-    # Redraw schöbe stattdessen eine weitere Kopie in den Scrollback.
-    # Eine Zeile bleibt frei, damit der Committen-Pfad Platz hat.
+    # The region is redrawn in place, and that only works while it fits on the
+    # screen: `cursor_up` stops at the top row, so a taller region could never
+    # be walked back over — every redraw would push another copy into the
+    # scrollback instead. One row stays free to give the commit path room.
     def max_height : Int32
       {@screen_height - 1, 1}.max
     end
@@ -88,16 +86,16 @@ module Anvil
       end
       @io << "\e[?2026l"
       @io.flush
-      # Der Cursor steht jetzt evtl. nicht auf Zeile 0; das nächste
-      # `end_frame` bewegt ihn relativ von dort, `row` ist korrekt geführt.
+      # The cursor may now sit somewhere other than row 0; the next
+      # `end_frame` moves relative to that, and `row` tracks it correctly.
     end
 
-    # Sichtbarer Cursor an dieser Stelle der Region — für die Eingabezeile.
+    # A visible cursor at this spot in the region — for the input line.
     def cursor_at(x : Int32, y : Int32) : Nil
       @cursor_target = {x, y}
     end
 
-    # Kein sichtbarer Cursor (der Normalfall, solange nichts eingegeben wird).
+    # No visible cursor (the normal case while nothing is being typed).
     def hide_cursor : Nil
       @cursor_target = nil
     end
@@ -112,12 +110,12 @@ module Anvil
       @buffer.invalidate
     end
 
-    # Höhe ändern. Wächst die Region, werden Zeilen vom Terminal angefordert
-    # (es scrollt); schrumpft sie, werden die überzähligen gelöscht. Danach
-    # ist der Bildschirminhalt in jedem Fall verschoben, also ungültig.
+    # Change the height. Growing asks the terminal for rows (it scrolls);
+    # shrinking erases the surplus ones. Either way what is on screen has
+    # shifted afterwards, so it is invalid.
     def height=(new_height : Int32) : Nil
       return if new_height == @height
-      raise ArgumentError.new("Höhe muss >= 1 sein") if new_height < 1
+      raise ArgumentError.new("height must be >= 1") if new_height < 1
       new_height = max_height if new_height > max_height
       return if new_height == @height
 
@@ -140,7 +138,7 @@ module Anvil
       @io.flush
     end
 
-    # Reagiert auf eine Größenänderung des Fensters.
+    # Reacts to the window changing size.
     def resized! : Nil
       backend = @backend
       return unless backend
@@ -153,7 +151,7 @@ module Anvil
       @buffer.invalidate
     end
 
-    # Für den Betrieb ohne Terminal: die Größe von außen setzen.
+    # For running without a terminal: set the size from outside.
     def resize(width : Int32, screen_height : Int32) : Nil
       @screen_height = screen_height
       return if width == @width
@@ -163,24 +161,23 @@ module Anvil
       @buffer.invalidate
     end
 
-    # Schreibt Zeilen dauerhaft in den Scrollback, oberhalb der Region.
+    # Writes lines permanently into the scrollback, above the region.
     def commit(lines : Array(Text::StyledLine)) : Nil
       return if lines.empty?
       move_to(0)
-      @io << ("\e[0J") # Region wegwischen: ab Cursor bis Bildschirmende
+      @io << ("\e[0J") # wipe the region: from the cursor to end of screen
       lines.each do |line|
         @io << render_to_ansi(line)
         @io << "\e[0m\r\n"
       end
-      # Der Cursor steht jetzt auf der ersten Zeile der neuen Region — und
-      # die beginnt so klein wie möglich.
+      # The cursor now sits on the first row of the new region — and that
+      # region starts as small as it can.
       #
-      # Die alte Höhe hier wieder anzufordern wäre falsch: der committete
-      # Block hat die Region gerade verlassen, sie wird also kleiner. Man
-      # schöbe den Bildschirm um die Differenz zu weit hoch und ließe die
-      # freigewordenen Zeilen als Lücke unter der Region stehen. Wie hoch sie
-      # wirklich sein muss, weiß erst der nächste Frame; `height=` wächst
-      # dann um genau so viele Zeilen, wie gebraucht werden.
+      # Asking for the old height again here would be wrong: the block just
+      # committed has left the region, so it gets smaller. One would push the
+      # screen up by the difference and leave the freed rows standing as a gap
+      # below the region. How tall it really has to be is known only to the
+      # next frame; `height=` then grows by exactly the rows needed.
       @renderer.row = 0
       @height = 1
       @renderer.height = 1
@@ -194,22 +191,21 @@ module Anvil
       @io << "\e[0J\e[0m\e[?25h"
       @io.flush
       @backend.try &.close
-      # Der abschließende Umbruch ist nicht Kosmetik: ohne ihn endet die
-      # Ausgabe mitten in einer Zeile, und die Shell zeigt ihre
-      # "unvollständige Zeile"-Marke (zsh: `%`) vor dem Prompt. Er kommt nach
-      # `backend.close`, weil das noch die Wiederherstellungssequenzen schreibt.
+      # The closing newline is not cosmetic: without it the output ends
+      # mid-line and the shell shows its "incomplete line" marker (zsh: `%`)
+      # before the prompt. It comes after `backend.close`, because that still
+      # writes the restore sequences.
       @io << "\r\n"
       @io.flush
     end
 
-    # Committete Zeilen gehen nicht durch den Zellpuffer — sie werden einmal
-    # geschrieben und nie gediffed, also ist eine ANSI-Zeichenkette das
-    # richtige Format dafür.
+    # Committed lines do not go through the cell buffer — they are written
+    # once and never diffed, so an ANSI string is the right shape for them.
     private def render_to_ansi(line : Text::StyledLine) : String
       Text.to_ansi(line)
     end
 
-    # Fordert `n` Zeilen an und stellt den Cursor auf die erste davon.
+    # Asks for `n` rows and parks the cursor on the first of them.
     private def claim_rows(n : Int32) : Nil
       return if n <= 1
       (n - 1).times { @io << ("\r\n") }

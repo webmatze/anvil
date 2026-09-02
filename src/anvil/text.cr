@@ -1,22 +1,22 @@
 require "termisu"
 
-# Styled-Text-Schicht.
+# The styled-text layer.
 #
-# termisu ist ein *Zellen*-Puffer: er kennt Zellen, Farben und Breiten, aber
-# keine Zeilen, keine Spans und keine Umbrüche. Genau das liegt hier — und es
-# ist der Teil, den eine App sonst jedes Mal selbst schreibt.
+# termisu is a *cell* buffer: it knows cells, colors and widths, but nothing
+# about lines, spans or wrapping. That is what lives here — and it is the part
+# an app would otherwise write again every time.
 #
-# Breiten kommen aus `Termisu::UnicodeWidth`, damit die Umbruchrechnung
-# dieselbe Auffassung von "wie breit ist das" hat wie der Renderer, der es
-# später zeichnet. Zwei Quellen dafür wären eine Fehlerquelle: was hier als
-# 79 Spalten breit gilt, muss dort in 79 Zellen passen.
+# Widths come from `Termisu::UnicodeWidth` so that the wrapping arithmetic
+# holds the same opinion about "how wide is this" as the renderer that later
+# draws it. Two sources would be a bug waiting to happen: what counts as 79
+# columns here has to fit into 79 cells there.
 module Anvil::Text
   alias Color = Termisu::Color
   alias Attribute = Termisu::Attribute
 
-  # Ein Stil. `nil` bei fg/bg heißt "nicht gesetzt" — das ist der Unterschied
-  # zu `Color.default` ("ausdrücklich die Terminal-Vorgabe") und der Grund,
-  # warum `merge` überhaupt schichten kann.
+  # A style. `nil` for fg/bg means "not set" — which is distinct from
+  # `Color.default` ("the terminal's own default, deliberately"), and is what
+  # makes `merge` able to layer at all.
   struct Style
     getter fg : Color?
     getter bg : Color?
@@ -43,19 +43,20 @@ module Anvil::Text
     end
 
     def plain? : Bool
-      # Nicht `@attr.none?`: `Attribute` ist ein @[Flags]-Enum mit `None = 0`,
-      # und Crystal erzeugt dessen Prädikat als "alle Bits von None gesetzt" —
-      # bei einem Nullwert also immer wahr. `Bold.none?` liefert `true`.
+      # Not `@attr.none?`: `Attribute` is a @[Flags] enum with `None = 0`, and
+      # Crystal generates that member's predicate as "all bits of None set" —
+      # which is true for every value when the member is zero. `Bold.none?`
+      # returns `true`.
       @fg.nil? && @bg.nil? && @attr.value.zero?
     end
 
-    # `other` gewinnt, wo es etwas zu sagen hat; Attribute addieren sich.
+    # `other` wins wherever it has something to say; attributes add up.
     def merge(other : Style) : Style
       Style.new(other.fg || @fg, other.bg || @bg, @attr | other.attr)
     end
 
-    # Prädikat je Attribut. Die einzelnen Member sind ungefährlich — nur
-    # `none?` ist bei einem @[Flags]-Enum mit Nullwert immer wahr, siehe
+    # One predicate per attribute. The individual members are safe — only
+    # `none?` is always true on a @[Flags] enum with a zero member, see
     # `#plain?`.
     {% for name in %w[bold dim italic underline reverse blink hidden strikethrough] %}
       def {{name.id}}? : Bool
@@ -63,16 +64,16 @@ module Anvil::Text
       end
     {% end %}
 
-    # Der Konstruktor nimmt `strike:`; hier der passende Leser dazu.
+    # The constructor takes `strike:`; this is the matching reader.
     def strike? : Bool
       @attr.strikethrough?
     end
 
-    # Die SGR-Sequenz für diesen Stil, oder "" wenn nichts zu setzen ist.
+    # The SGR sequence for this style, or "" when there is nothing to set.
     #
-    # Gebraucht überall dort, wo eine Zeile *einmal* geschrieben und nie
-    # gediffed wird: in den Scrollback committete Inhalte, Ausgabe in eine
-    # Datei, Abnahmebilder. Der Zellpuffer geht einen anderen Weg.
+    # Needed wherever a line is written *once* and never diffed: content
+    # committed to the scrollback, output to a file, approval snapshots. The
+    # cell buffer takes a different route.
     def ansi : String
       return "" if plain?
 
@@ -92,7 +93,7 @@ module Anvil::Text
       parts.empty? ? "" : "\e[#{parts.join(';')}m"
     end
 
-    # Farben aufgelöst, wie der Renderer sie braucht.
+    # Colors resolved the way the renderer needs them.
     def resolved_fg : Color
       @fg || Color.default
     end
@@ -102,7 +103,7 @@ module Anvil::Text
     end
   end
 
-  # Ein Textstück mit einheitlichem Stil.
+  # A run of text with a single style.
   struct Span
     getter text : String
     getter style : Style
@@ -127,14 +128,13 @@ module Anvil::Text
 
   EMPTY_LINE = [] of Span
 
-  # Anzeigebreite in Terminalspalten. Grapheme-Cluster, nicht Codepoints:
-  # ein Emoji mit Variation Selector ist eine Zelle breit gemeint und zwei
-  # Codepoints lang.
-  # Breite eines einzelnen Grapheme-Clusters.
+  # Width of a single grapheme cluster.
   def self.grapheme_width(grapheme : String) : Int32
     Termisu::UnicodeWidth.grapheme_width(grapheme).to_i
   end
 
+  # Display width in terminal columns. Grapheme clusters, not codepoints: an
+  # emoji with a variation selector means one cell and is two codepoints long.
   def self.width(text : String) : Int32
     total = 0
     text.each_grapheme { |g| total += grapheme_width(g.to_s) }
@@ -153,9 +153,9 @@ module Anvil::Text
     text.empty? ? EMPTY_LINE.dup : [Span.new(text, style)]
   end
 
-  # Kürzt auf `width` Spalten. Mit `ellipsis` wird dafür Platz freigehalten,
-  # und das Kürzel erbt den Stil des Spans, an dem geschnitten wurde — sonst
-  # springt es optisch aus der Zeile.
+  # Truncates to `width` columns. Room is reserved for `ellipsis`, and the
+  # ellipsis inherits the style of the span it cut into — otherwise it stands
+  # out from the line it belongs to.
   def self.truncate(line : StyledLine, width : Int32, ellipsis : String? = nil) : StyledLine
     return EMPTY_LINE.dup if width <= 0
     return line if self.width(line) <= width
@@ -193,19 +193,17 @@ module Anvil::Text
     out
   end
 
-  # Bricht auf `width` Spalten um und liefert die entstandenen Zeilen.
+  # Wraps to `width` columns and returns the resulting lines.
   #
-  # Umbrochen wird über Span-Grenzen hinweg — ein Wort, das in einem Span
-  # beginnt und im nächsten endet, bleibt zusammen und behält je Teil seinen
-  # eigenen Stil. Passt ein einzelnes Wort nicht in eine ganze Zeile, wird es
-  # hart getrennt, statt eine überbreite Zeile zu erzeugen: die Zusage "eine
-  # Zeile ist nie breiter als `width`" ist das, worauf die Inline-Region
-  # ihre Höhenrechnung stützt.
+  # Wrapping crosses span boundaries — a word that starts in one span and ends
+  # in the next stays together, each part keeping its own style. A word that
+  # does not fit a whole line is broken hard rather than producing an
+  # over-wide line: the promise that "no line is ever wider than `width`" is
+  # what the inline region bases its height arithmetic on.
   def self.wrap(line : StyledLine, width : Int32) : Array(StyledLine)
-    # Eine nicht-positive Breite auf eine Spalte klemmen, statt den Inhalt
-    # zurückzugeben oder zu verschlucken: ein Fenster kann kurzzeitig 0 Spalten
-    # melden (während einer Größenänderung), und dabei Text zu verlieren wäre
-    # der schlechteste Ausgang.
+    # Clamp a non-positive width to one column rather than returning the
+    # content untouched or swallowing it: a window can briefly report 0
+    # columns during a resize, and losing text there is the worst outcome.
     width = 1 if width < 1
     return [EMPTY_LINE.dup] if line.empty?
 
@@ -220,9 +218,9 @@ module Anvil::Text
     out
   end
 
-  # Ein eingebetteter Zeilenumbruch ist ein Umbruch, kein Zeichen: bliebe er
-  # stehen, landete er als Steuerzeichen in einer Zelle. Getrennt wird über
-  # Span-Grenzen hinweg, die Stile bleiben je Teil erhalten.
+  # An embedded newline is a break, not a character: left in place it would
+  # end up in a cell as a control character. Splitting crosses span
+  # boundaries, and each part keeps its style.
   private def self.split_newlines(line : StyledLine) : Array(StyledLine)
     return [line.dup] unless line.any? { |span| span.text.includes?('\n') }
 
@@ -235,7 +233,7 @@ module Anvil::Text
           out << current
           current = StyledLine.new
         end
-        # CRLF: das Wagenrücklaufzeichen gehört genauso wenig in eine Zelle.
+        # CRLF: the carriage return has no business in a cell either.
         part = part.rchop('\r')
         append(current, part, span.style) unless part.empty?
       end
@@ -244,9 +242,9 @@ module Anvil::Text
     out
   end
 
-  # Der Umbruch als eigener Zustand statt als Kette von Closures: er muss
-  # Zeile, Spaltenzähler und das noch nicht platzierte Wort gleichzeitig
-  # fortschreiben, und das liest sich als Methoden schlicht besser.
+  # Wrapping as its own piece of state rather than a chain of closures: it has
+  # to advance the line, the column count and the not-yet-placed word at the
+  # same time, and that simply reads better as methods.
   private class Wrapper
     def initialize(@width : Int32)
       @out = Array(StyledLine).new
@@ -277,8 +275,8 @@ module Anvil::Text
 
     private def take_space(style : Style) : Nil
       place_word
-      # Führende Leerzeichen einer umbrochenen Zeile werden verworfen, sonst
-      # beginnt jede Folgezeile eingerückt.
+      # Leading spaces on a wrapped line are dropped, or every continuation
+      # line would start indented.
       return if @used == 0
       if @used + 1 > @width
         break_line
@@ -303,9 +301,9 @@ module Anvil::Text
       @word_width = 0
     end
 
-    # Ein Wort, das in keine Zeile passt, wird Grapheme für Grapheme getrennt.
-    # Die Zusage "keine Zeile ist breiter als `width`" wiegt schwerer als ein
-    # unversehrtes Wort — die Inline-Region stützt ihre Höhenrechnung darauf.
+    # A word that fits no line at all is broken grapheme by grapheme. The
+    # promise that "no line is wider than `width`" outweighs an intact word —
+    # the inline region rests its height arithmetic on it.
     private def hard_break_word : Nil
       @word.each do |piece|
         piece.text.each_grapheme do |g|
@@ -319,9 +317,9 @@ module Anvil::Text
     end
 
     private def break_line : Nil
-      # Ein Trennzeichen, das genau auf den Umbruch fällt, ist unsichtbar —
-      # aber es zählt gegen die Breite, und eine Zeile, die auf Leerzeichen
-      # endet, füllt beim Zeichnen Zellen mit Hintergrundfarbe. Also weg damit.
+      # A separator landing exactly on the break is invisible — but it counts
+      # against the width, and a line ending in spaces fills cells with
+      # background color when drawn. So it goes.
       trim_trailing_spaces
       @out << @current
       @current = StyledLine.new
@@ -344,9 +342,9 @@ module Anvil::Text
     end
   end
 
-  # Hängt Text an die Zeile und führt ihn mit dem letzten Span zusammen, wenn
-  # die Stile gleich sind — sonst entstünde pro Grapheme ein eigener Span und
-  # der Renderer bekäme statt eines Batches hunderte.
+  # Appends text to the line, merging it into the last span when the styles
+  # match — otherwise every grapheme would become its own span and the
+  # renderer would get hundreds of batches instead of one.
   protected def self.append(line : StyledLine, text : String, style : Style) : Nil
     if (last = line.last?) && last.style == style
       line[-1] = last.with_text(last.text + text)
@@ -355,7 +353,8 @@ module Anvil::Text
     end
   end
 
-  # Farbanteil einer SGR-Sequenz. `base` ist 38 für Vorder-, 48 für Hintergrund.
+  # The color part of an SGR sequence. `base` is 38 for foreground, 48 for
+  # background.
   def self.sgr_color(color : Color, base : Int32) : String
     case color.mode
     when .rgb?     then "#{base};2;#{color.r};#{color.g};#{color.b}"
@@ -364,17 +363,17 @@ module Anvil::Text
     end
   end
 
-  # Schreibt eine gestylte Zeile als ANSI in ein IO.
+  # Writes a styled line to an IO as ANSI.
   #
-  # Mit `color: false` kommt reiner Text heraus — für Pipes, Protokolle und
-  # Tests, die sich nicht mit Escape-Sequenzen herumschlagen wollen.
+  # With `color: false` the result is plain text — for pipes, logs and tests
+  # that would rather not wrestle with escape sequences.
   def self.render(line : StyledLine, io : IO, color : Bool = true) : Nil
     current = Style::NONE
     line.each do |span|
       style = span.style
       if color && style != current
-        # Zurücksetzen, bevor ein neuer Stil kommt: sonst bleiben Attribute
-        # des vorigen Spans stehen, die der neue nicht ausdrücklich abwählt.
+        # Reset before a new style: otherwise attributes of the previous span
+        # survive wherever the new one does not explicitly turn them off.
         io << "\e[0m" unless current.plain?
         io << style.ansi
         current = style
@@ -388,7 +387,7 @@ module Anvil::Text
     String.build { |io| render(line, io, color) }
   end
 
-  # Benannte Rollen statt Zahlen im Aufrufercode.
+  # Named roles instead of numbers in calling code.
   module Palette
     ACCENT   = Color.ansi256(39)
     INFO     = Color.ansi256(245)

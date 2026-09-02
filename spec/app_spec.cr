@@ -5,8 +5,8 @@ include KeyFactory
 
 private def build_app(width = 40, height = 10)
   surface = Surface::Memory.new(width, height, height)
-  # Die Schleife wird in diesen Specs nicht gefahren; Ereignisse gehen direkt
-  # an `handle_event`, gezeichnet wird mit `render`.
+  # The loop is not run in these specs; events go straight to `handle_event`
+  # and drawing happens through `render`.
   loop = Loop.new(->(_t : Time::Span) { nil.as(Termisu::Event::Any?) })
   {App.new(surface, loop), surface}
 end
@@ -37,7 +37,7 @@ private class LiveBlock < Anvil::View::Block
 end
 
 describe Anvil::App do
-  it "zeichnet Statuszeile und Eingabe" do
+  it "draws the status line and the input" do
     app, surface = build_app
     app.status = ->(w : Int32) { Text.line("bereit") }
     type(app.editor, "hallo")
@@ -46,19 +46,19 @@ describe Anvil::App do
     surface.to_lines[-2].should eq "bereit"
   end
 
-  it "schiebt fertige Blöcke in den Scrollback, unfertige nicht" do
+  it "pushes finished blocks into the scrollback, unfinished ones not" do
     app, surface = build_app
     app.add_block(DoneBlock.new("fertig"))
-    live = LiveBlock.new("läuft")
+    live = LiveBlock.new("running")
     app.add_block(live)
     app.render
 
     surface.committed_text.should contain "fertig"
-    surface.committed_text.should_not contain "läuft"
-    surface.to_lines.any?(&.includes?("läuft")).should be_true
+    surface.committed_text.should_not contain "running"
+    surface.to_lines.any?(&.includes?("running")).should be_true
   end
 
-  it "schiebt einen Block genau einmal in den Scrollback" do
+  it "pushes a block into the scrollback exactly once" do
     app, surface = build_app
     app.add_block(DoneBlock.new("einmal"))
     app.render
@@ -66,20 +66,20 @@ describe Anvil::App do
     surface.committed_text.count("einmal").should eq 1
   end
 
-  it "commitet einen Block erst, wenn er fertig ist" do
+  it "commits a block only once it is finished" do
     app, surface = build_app
-    live = LiveBlock.new("läuft")
+    live = LiveBlock.new("running")
     app.add_block(live)
     app.render
     surface.committed_text.should be_empty
 
     live.done = true
     app.render
-    surface.committed_text.should contain "läuft"
+    surface.committed_text.should contain "running"
   end
 
-  describe "Eingabe" do
-    it "reicht abgesendeten Text weiter und wechselt in Busy" do
+  describe "input" do
+    it "passes submitted text on and switches to Busy" do
       app, _ = build_app
       submitted = [] of String
       app.on_submit = ->(s : String) { submitted << s; nil }
@@ -90,7 +90,7 @@ describe Anvil::App do
       app.state.busy?.should be_true
     end
 
-    it "ignoriert leere Eingaben" do
+    it "ignores blank input" do
       app, _ = build_app
       submitted = [] of String
       app.on_submit = ->(s : String) { submitted << s; nil }
@@ -101,7 +101,7 @@ describe Anvil::App do
       app.state.idle?.should be_true
     end
 
-    it "nimmt im Zustand Busy keine Tasten für den Editor an" do
+    it "takes no editor keys while Busy" do
       app, _ = build_app
       app.busy!
       type(app, "x")
@@ -109,8 +109,8 @@ describe Anvil::App do
     end
   end
 
-  describe "Modale Abfragen" do
-    it "blockiert den fragenden Fiber und läuft weiter, wenn geantwortet wird" do
+  describe "modal questions" do
+    it "blocks the asking fiber and continues once answered" do
       app, _ = build_app
       answer = nil.as(Char?)
       spawn do
@@ -126,7 +126,7 @@ describe Anvil::App do
       app.state.modal_char?.should be_false
     end
 
-    it "nimmt nur die angebotenen Tasten an" do
+    it "accepts only the keys it offered" do
       app, _ = build_app
       answer = nil.as(Char?)
       spawn { answer = app.ask(Text.line("?"), [] of Text::StyledLine, ['j', 'n'], Text.line("[j/n]")) }
@@ -139,7 +139,7 @@ describe Anvil::App do
       answer.should eq 'n'
     end
 
-    it "sammelt eine Zeile Text ein" do
+    it "collects a line of text" do
       app, _ = build_app
       answer = nil.as(String?)
       spawn { answer = app.ask_text(Text.line("Warum?"), [] of Text::StyledLine) }
@@ -151,8 +151,8 @@ describe Anvil::App do
       answer.should eq "weil"
     end
 
-    it "zeigt die Frage auch dann, wenn der Platz nicht reicht" do
-      # Angeheftet: der Text den sie beschreibt weicht, die Frage nie.
+    it "shows the question even when there is not enough room" do
+      # Pinned: the text it describes gives way, the question never does.
       app, surface = build_app(40, 6)
       spawn do
         app.ask(Text.line("Wirklich?"),
@@ -169,7 +169,7 @@ describe Anvil::App do
   end
 
   describe "Ctrl-C" do
-    it "bittet beim ersten Mal um Abbruch" do
+    it "asks to stop the first time" do
       app, _ = build_app
       interrupts = 0
       app.on_interrupt = -> { interrupts += 1; nil }
@@ -178,7 +178,7 @@ describe Anvil::App do
       app.state.done?.should be_false
     end
 
-    it "beendet beim zweiten Mal kurz darauf" do
+    it "quits on a quick second press" do
       app, _ = build_app
       aborted = 0
       app.on_abort = -> { aborted += 1; nil }
@@ -189,12 +189,12 @@ describe Anvil::App do
     end
   end
 
-  it "setzt den Cursor in die Eingabezeile und versteckt ihn sonst" do
+  it "puts the cursor in the input line and hides it otherwise" do
     app, surface = build_app
     type(app.editor, "abc")
     app.render
     surface.cursor.should_not be_nil
-    surface.cursor.not_nil![0].should eq 5 # "> " plus drei Zeichen
+    surface.cursor.not_nil![0].should eq 5 # "> " plus three characters
 
     app.busy!
     app.render
@@ -202,26 +202,26 @@ describe Anvil::App do
   end
 end
 
-describe "Anvil::App Haken für die Anwendung" do
-  it "lässt on_key Tasten vor der Zustandsmaschine abfangen" do
+describe "Anvil::App hooks for the application" do
+  it "lets on_key intercept keys before the state machine" do
     app, _ = build_app
     seen = [] of Char
     app.on_key = ->(e : Termisu::Event::Key) do
       if (ch = e.char) && ch == 'x'
         seen << ch
-        true # verbraucht
+        true # consumed
       else
         false
       end
     end
     type(app, "axb")
     seen.should eq ['x']
-    # Nur das, was der Haken durchgelassen hat, kam beim Editor an.
+    # Only what the hook let through reached the editor.
     app.editor.text.should eq "ab"
   end
 
-  it "übergeht bei verbrauchter Taste auch Ctrl-C" do
-    # Eine Anwendung mit eigener Abbruch-Bedeutung muss sie behalten können.
+  it "skips even Ctrl-C when the key was consumed" do
+    # An application with its own meaning for it must be able to keep it.
     app, _ = build_app
     aborted = 0
     own = 0
@@ -233,20 +233,20 @@ describe "Anvil::App Haken für die Anwendung" do
     aborted.should eq 0
   end
 
-  it "clear! wirft Blöcke weg und löscht den Bildschirm" do
+  it "clear! drops the blocks and wipes the screen" do
     app, surface = build_app
     app.add_block(DoneBlock.new("weg"))
     app.render
     app.clear!
     app.blocks.should be_empty
-    # Nach dem Löschen darf nichts erneut committet werden.
+    # After the wipe nothing may be committed again.
     before = surface.commits.size
     app.render
     surface.commits.size.should eq before
   end
 
-  it "nimmt eine Antworttaste auch ohne char an" do
-    # Der Parser gibt bei manchen Tasten nur das Key-Enum mit.
+  it "accepts an answer key even without a char" do
+    # For some keys the parser supplies only the key enum.
     app, _ = build_app
     answer = nil.as(Char?)
     spawn { answer = app.ask(Text.line("?"), [] of Text::StyledLine, ['j'], Text.line("[j]")) }
@@ -257,8 +257,8 @@ describe "Anvil::App Haken für die Anwendung" do
   end
 end
 
-describe "Anvil::App Abbruch einer Frage" do
-  it "beantwortet Escape mit dem Abbruchzeichen" do
+describe "Anvil::App cancelling a question" do
+  it "answers Escape with the cancel character" do
     app, _ = build_app
     answer = nil.as(Char?)
     spawn { answer = app.ask(Text.line("?"), [] of Text::StyledLine, ['j'], Text.line("[j]"), cancel: 'x') }
@@ -268,7 +268,7 @@ describe "Anvil::App Abbruch einer Frage" do
     answer.should eq 'x'
   end
 
-  it "lässt Escape ohne Abbruchzeichen unbeantwortet" do
+  it "leaves Escape unanswered when no cancel character is given" do
     app, _ = build_app
     answer = nil.as(Char?)
     spawn { answer = app.ask(Text.line("?"), [] of Text::StyledLine, ['j'], Text.line("[j]")) }
@@ -279,10 +279,10 @@ describe "Anvil::App Abbruch einer Frage" do
   end
 end
 
-describe "Anvil::App Neuaufbau und Animation" do
-  it "gibt beim Neuaufbau den ganzen Verlauf erneut aus" do
-    # Ohne das bliebe nach dem Löschen nur die Live-Region stehen und alles
-    # bereits Committete wäre vom Bild verschwunden.
+describe "Anvil::App redraw and animation" do
+  it "re-emits the whole transcript on a redraw" do
+    # Without it, only the live region would remain after the wipe and
+    # everything already committed would be gone from the picture.
     app, surface = build_app
     app.add_block(DoneBlock.new("verlauf"))
     app.render
@@ -293,9 +293,9 @@ describe "Anvil::App Neuaufbau und Animation" do
     surface.committed_text.count("verlauf").should eq 2
   end
 
-  it "zeichnet durchgehend, solange etwas läuft" do
-    # Spinner und Laufzeiten bewegen sich von allein; niemand meldet sie als
-    # schmutzig.
+  it "keeps drawing while something is running" do
+    # Spinners and elapsed times move on their own; nobody reports them
+    # dirty.
     app, _ = build_app
     app.loop.animating?.should be_false
     app.busy!
@@ -304,7 +304,7 @@ describe "Anvil::App Neuaufbau und Animation" do
     app.loop.animating?.should be_false
   end
 
-  it "zeichnet auch durch, solange eine Frage offen ist" do
+  it "keeps drawing while a question is open" do
     app, _ = build_app
     spawn { app.ask(Text.line("?"), [] of Text::StyledLine, ['j'], Text.line("[j]")) }
     Fiber.yield

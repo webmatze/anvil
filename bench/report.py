@@ -26,10 +26,10 @@ for scenario in ("churn", "dashboard"):
     sel = [r for r in rows if r.get("scenario") == scenario]
     if not sel: continue
     cc = changed.get(scenario)
-    print(f"\n### Szenario `{scenario}`"
-          + (f" — {cc:.0f} geänderte Zellen/Frame" if cc else ""))
+    print(f"\n### Scenario `{scenario}`"
+          + (f" — {cc:.0f} changed cells/frame" if cc else ""))
     print()
-    print("| Impl | Variante | Ziel | Erreicht fps | p50 ms | p95 ms | p99 ms | Bytes/Frame | B/Zelle | CPU % | Missed |")
+    print("| Impl | Variant | Target | Achieved fps | p50 ms | p95 ms | p99 ms | Bytes/frame | B/cell | CPU % | Missed |")
     print("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for r in sorted(sel, key=lambda r: (r["target_fps"], r["impl"], r["variant"])):
         bpf = r.get("bytes_per_frame")

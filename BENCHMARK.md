@@ -1,137 +1,136 @@
-# Benchmark: Womit baut man in Crystal eine flickerfreie Fullscreen-TUI?
+# Benchmark: what to build a tear-free fullscreen TUI on in Crystal
 
-Gemessen auf macOS (Apple Silicon), Crystal 1.21.0, Release-Builds, 200×50 Zellen,
-TrueColor, 600 Frames pro Lauf, headless über ein PTY fester Größe.
+Measured on macOS (Apple Silicon), Crystal 1.21.0, release builds, 200×50 cells, true
+color, 600 frames per run, headless over a PTY of a fixed size.
 
-Priorisierte Kriterien: **flickerfreies Rendering** und **kleine Binaries**.
-Absolute Framerate ist nachrangig, solange 30–60 fps sicher gehalten werden.
+Priorities, in order: **tear-free rendering** and **small binaries**. Absolute frame rate
+is secondary as long as 30–60 fps is held reliably.
 
-## Empfehlung
+## Recommendation
 
-**Eine dünne eigene Schicht auf [termisu](https://github.com/omarluq/termisu).**
+**A thin layer of our own on [termisu](https://github.com/omarluq/termisu).**
 
-termisu ist bei den Bytes pro Frame in beiden Szenarien der beste Kandidat — und
-das ist unter Synchronized Output die Größe, die über Flickern entscheidet. Es kostet
-0,97 MB Binary gegenüber 0,60 MB für handgeschriebenen Code, und liefert dafür den
-kompletten Input-Stack, Wide-Char-Handling und einen Tick-Timer. Was du selbst
-ergänzen musst, ist überschaubar und in `bench/baseline.cr` bereits vorexerziert:
-ein Fixed-Timestep-Loop mit Drift-Korrektur und ein Signal-Handler fürs Terminal-Restore.
+termisu is the best candidate on bytes per frame in both scenarios — and under
+synchronized output that is the quantity which decides tearing. It costs 0.97 MB of
+binary against 0.60 MB for hand-written code, and gives back the complete input stack,
+wide-character handling and a tick timer. What has to be added is modest and already
+demonstrated in `bench/baseline.cr`: a fixed-timestep loop with drift correction, and a
+signal handler that restores the terminal.
 
-Gegen die Alternativen:
+Against the alternatives:
 
-- **crysterm** ist raus, obwohl es technisch am meisten kann: 35 MB Binary (59× termisu),
-  ~25 Minuten Release-Build, und es hält die angeforderte Framerate nicht ein.
-- **sk_tui** ist überraschend klein (0,68 MB), verbraucht aber 74 % mehr Bytes pro Frame
-  als termisu — genau die falsche Richtung für dein Hauptkriterium.
-- **From scratch** ist verteidigbar (0,60 MB, exakte Cadence, null Fremdabhängigkeit),
-  aber der Aufpreis von 0,37 MB kauft dir bei termisu Input-Parsing, Bracketed Paste,
-  Grapheme-Cluster und Wide-Char-Behandlung — alles Dinge, die einzeln klein aussehen
-  und in der Summe wochenlang Detailarbeit sind.
+- **crysterm** is out despite being the most capable technically: 35 MB of binary (59×
+  termisu), ~25 minutes of release build, and it does not hold the frame rate it is
+  asked for.
+- **sk_tui** is surprisingly small (0.68 MB) but spends 74 % more bytes per frame than
+  termisu — exactly the wrong direction for the primary criterion.
+- **From scratch** is defensible (0.60 MB, exact cadence, zero third-party dependency),
+  but the 0.37 MB premium buys input parsing, bracketed paste, grapheme clusters and
+  wide-character handling — all things that look small individually and add up to weeks
+  of detail work.
 
-## Flickern
+## Tearing
 
-Alle vier Implementierungen verhalten sich hier grundsätzlich korrekt:
+All four implementations behave correctly in the basics:
 
-| Impl | Sync-Marker pro Frame | Vollbild-Löschungen im Betrieb | Cursor versteckt |
+| Impl | Sync markers per frame | Full-screen erases while running | Cursor hidden |
 |---|---:|---:|---|
-| baseline | 120/120 | 0 | ja |
-| termisu | 120/120 | 0 | ja |
-| sk_tui | 120/120 | 0 | ja |
-| crysterm | 120/120 | 0 | ja |
+| baseline | 120/120 | 0 | yes |
+| termisu | 120/120 | 0 | yes |
+| sk_tui | 120/120 | 0 | yes |
+| crysterm | 120/120 | 0 | yes |
 
-Jede umschließt jeden Frame mit DEC 2026 Synchronized Output (`ESC[?2026h/l`) und löscht
-im laufenden Betrieb nie den Bildschirm. Auf Ghostty, das DEC 2026 unterstützt, sollte
-daher keine davon reißen.
+Each wraps every frame in DEC 2026 synchronized output (`ESC[?2026h/l`) and never clears
+the screen while running. On Ghostty, which supports DEC 2026, none of them should tear.
 
-Damit verschiebt sich die Flicker-Frage auf zwei andere Größen:
+That moves the tearing question onto two other quantities:
 
-**1. Bytes pro Frame.** Unter Synchronized Output hält das Terminal den Frame zurück, bis
-die Endmarke kommt — je größer der Frame, desto länger dieses Fenster. Bei 331 KB/Frame
-(Vollbild-Churn) sind das bei 60 fps 20 MB/s, mehr als ein Terminal aufnimmt; die
-effektive Bildrate bricht dann ein, egal was die App tut. Im realistischen Dashboard-Fall:
+**1. Bytes per frame.** Under synchronized output the terminal holds the frame back until
+the end marker arrives — the larger the frame, the longer that window. At 331 KB per
+frame (fullscreen churn) that is 20 MB/s at 60 fps, more than a terminal ingests; the
+effective frame rate then collapses whatever the app does. In the realistic dashboard
+case:
 
-| Impl | Bytes/Frame | pro geänderter Zelle |
+| Impl | Bytes/frame | per changed cell |
 |---|---:|---:|
-| baseline | 6 785 | 17,2 |
-| **termisu** | **6 795** | **17,3** |
-| crysterm | 8 891 | 22,6 |
-| sk_tui | 11 833 | 30,1 |
+| baseline | 6,785 | 17.2 |
+| **termisu** | **6,795** | **17.3** |
+| crysterm | 8,891 | 22.6 |
+| sk_tui | 11,833 | 30.1 |
 
-**2. Gleichmäßigkeit der Cadence.** Ein Frame, der mal 16 und mal 27 ms braucht, wirkt
-unruhig, auch wenn der Durchschnitt stimmt. Angefordert vs. erreicht (Dashboard):
+**2. Evenness of the cadence.** A frame that takes 16 ms once and 27 ms the next reads as
+restless even when the average is right. Requested against achieved (dashboard):
 
-| Impl | Ziel 30 | Ziel 60 |
+| Impl | Target 30 | Target 60 |
 |---|---:|---:|
-| baseline (fixed timestep) | 30,0 | 60,0 |
-| termisu (sleep-Timer) | 29,6 | 58,2 |
-| termisu (Kernel-Timer, kqueue) | 30,3 | 62,4 |
-| sk_tui (eigener Loop wie baseline) | 30,0 | 60,0 |
-| **crysterm** | **50,3** | **52,7** |
+| baseline (fixed timestep) | 30.0 | 60.0 |
+| termisu (sleep timer) | 29.6 | 58.2 |
+| termisu (kernel timer, kqueue) | 30.3 | 62.4 |
+| sk_tui (own loop, like baseline) | 30.0 | 60.0 |
+| **crysterm** | **50.3** | **52.7** |
 
-crysterm ignoriert die Taktvorgabe: Sein Render-Loop koalesziert Frames nach eigener
-Logik und rendert bei Ziel 30 zu viel, bei Ziel 60 zu wenig. termisus beide Timer laufen
-um 3–4 % daneben und brauchen in einer Library-Schicht eine Drift-Korrektur — der
-Fixed-Timestep-Loop der Baseline (`bench/baseline.cr`, `next_at += interval`) trifft
-die Vorgabe exakt und ist ~10 Zeilen.
+crysterm ignores the requested tick: its render loop coalesces frames by its own logic
+and renders too many at a target of 30, too few at 60. Both of termisu's timers run 3–4 %
+off and need drift correction in a library layer — the baseline's fixed-timestep loop
+(`bench/baseline.cr`, `next_at += interval`) hits the target exactly and is ~10 lines.
 
-Was diese Messung *nicht* zeigt: wie es real aussieht. Das PTY im Testaufbau wird von
-einem Reader geleert, der nichts zeichnet — ein echtes Terminal ist langsamer. Für
-Tearing und gefühlte Ruhe: `bench/interactive.sh <impl> <szenario> <fps>` in Ghostty.
+What this measurement does *not* show is how it looks. The PTY in the harness is drained
+by a reader that draws nothing; a real terminal is slower. For tearing and perceived
+calm: `bench/interactive.sh <impl> <scenario> <fps>` in a real terminal.
 
-## Interaktive Bestätigung (Ghostty, echtes Terminal)
+## Interactive confirmation (Ghostty, real terminal)
 
-Beide Szenarien, 95×28 Zellen, 600 Frames:
+Both scenarios, 95×28 cells, 600 frames:
 
 | | `dashboard` | `churn` |
 |---|---|---|
-| erreicht | 58,3 fps (Ziel 60) | 58,1 fps (Ziel 60) |
-| Frame-Zeit p50 | 1,08 ms | 3,05 ms |
-| p95 / p99 | 1,66 / 2,08 ms | 4,86 / 5,77 ms |
-| verpasste Ticks | 0 | 0 |
-| Bytes/Frame (gerechnet) | ~1,6 KB | ~83 KB |
-| Tearing | keins | keins |
-| Terminal danach | sauber wiederhergestellt | sauber wiederhergestellt |
+| achieved | 58.3 fps (target 60) | 58.1 fps (target 60) |
+| frame time p50 | 1.08 ms | 3.05 ms |
+| p95 / p99 | 1.66 / 2.08 ms | 4.86 / 5.77 ms |
+| missed ticks | 0 | 0 |
+| bytes/frame (computed) | ~1.6 KB | ~83 KB |
+| tearing | none | none |
+| terminal afterwards | cleanly restored | cleanly restored |
 
-Deckt sich mit der Headless-Messung: die Frame-Zeit skaliert mit der Zellenzahl
-(95×28 ≈ 2 660 Zellen gegenüber 10 000 im Testraster), und der Sleep-Timer läuft auch
-im echten Terminal 3 % zu langsam — die Drift-Korrektur ist also real nötig, nicht ein
-Artefakt des Messaufbaus.
+This matches the headless measurement: frame time scales with the cell count (95×28 ≈
+2,660 cells against 10,000 in the test grid), and the sleep timer runs 3 % slow in a real
+terminal too — so the drift correction is genuinely needed, not an artifact of the
+harness.
 
-Der Churn-Fall ist die Belastungsprobe: jede Zelle ändert sich jeden Frame, ~83 KB/Frame
-bzw. ~4,8 MB/s. Ghostty verarbeitet das ohne sichtbares Reißen und ohne einen einzigen
-verpassten Tick — bei p99 von 5,8 ms bleiben über 10 ms Puffer im 16-ms-Budget.
+The churn case is the stress test: every cell changes every frame, ~83 KB per frame or
+~4.8 MB/s. Ghostty handles it with no visible tearing and without a single missed tick —
+at a p99 of 5.8 ms there is over 10 ms of headroom in the 16 ms budget.
 
-**Wichtig für die Skalierung:** dieser Puffer hängt an der Fenstergröße. Dasselbe
-Szenario auf 200×50 sind 313 KB/Frame, bei 60 fps also 18 MB/s — dort bricht die
-Bildrate ein, unabhängig von der Library. Ein Vollbild-Effekt, bei dem sich wirklich
-jede Zelle ändert, ist auf großen Terminals nicht bei 60 fps zu haben; alles, was
-weniger als ~5 % der Zellen pro Frame anfasst, ist dagegen weit im grünen Bereich.
+**Important for scaling:** that headroom depends on the window size. The same scenario at
+200×50 is 313 KB per frame, so 18 MB/s at 60 fps — there the frame rate collapses,
+whatever the library. A fullscreen effect in which truly every cell changes is not
+available at 60 fps on large terminals; anything touching less than ~5 % of the cells per
+frame is comfortably in the clear.
 
-## Binary-Größe
+## Binary size
 
-Gleiche App (Vollbild-Renderer, beide Szenarien), Release-Build, gestrippt:
+The same app (fullscreen renderer, both scenarios), release build, stripped:
 
 | Impl | Binary | vs. baseline |
 |---|---:|---:|
-| baseline (ohne Library) | 0,60 MB | 1,0× |
-| sk_tui | 0,68 MB | 1,1× |
-| termisu | 0,97 MB | 1,6× |
-| crysterm | 35,36 MB | 59× |
+| baseline (no library) | 0.60 MB | 1.0× |
+| sk_tui | 0.68 MB | 1.1× |
+| termisu | 0.97 MB | 1.6× |
+| crysterm | 35.36 MB | 59× |
 
-Minimal-App, die die Library nur einbindet: baseline 0,44 MB · sk_tui 0,51 MB ·
-termisu 0,86 MB.
+A minimal app that merely requires the library: baseline 0.44 MB · sk_tui 0.51 MB ·
+termisu 0.86 MB.
 
-Crystal generiert nur erreichbaren Code — deshalb kostet sk_tuis Widget- und CSS-Schicht
-nichts, solange sie ungenutzt bleibt, obwohl die Library 29 000 LOC hat. Bei crysterm
-greift das nicht: schon eine einzelne `Box` mit Paint-Handler zieht 35 MB nach sich, weil
-CSS-Engine, 12 Layout-Engines und die Medien-Backends unbedingt mitkommen.
+Crystal only generates reachable code — which is why sk_tui's widget and CSS layer costs
+nothing while unused, despite the library being 29,000 LOC. That does not save crysterm:
+a single `Box` with a paint handler already drags in 35 MB, because the CSS engine, 12
+layout engines and the media backends come along unconditionally.
 
-## Vollständige Messmatrix
+## Full measurement matrix
 
+### Scenario `churn` — 10,000 changed cells/frame
 
-### Szenario `churn` — 10000 geänderte Zellen/Frame
-
-| Impl | Variante | Ziel | Erreicht fps | p50 ms | p95 ms | p99 ms | Bytes/Frame | B/Zelle | CPU % | Missed |
+| Impl | Variant | Target | Achieved fps | p50 ms | p95 ms | p99 ms | Bytes/frame | B/cell | CPU % | Missed |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | baseline | default | 30 | 30.0 | 6.95 | 8.65 | 15.65 | 331 655 | 33.2 | 14.8 | 2 |
 | baseline | nosync | 30 | 30.0 | 7.08 | 8.88 | 9.73 | 331 639 | 33.2 | 15.6 | 2 |
@@ -152,9 +151,9 @@ CSS-Engine, 12 Layout-Engines und die Medien-Backends unbedingt mitkommen.
 | termisu | nosync | 60 | 58.4 | 6.89 | 8.17 | 10.52 | 312 566 | 31.3 | 23.7 | 0 |
 | termisu | systimer | 60 | 62.4 | 6.77 | 7.94 | 8.86 | 312 582 | 31.3 | 25.2 | 0 |
 
-### Szenario `dashboard` — 394 geänderte Zellen/Frame
+### Scenario `dashboard` — 394 changed cells/frame
 
-| Impl | Variante | Ziel | Erreicht fps | p50 ms | p95 ms | p99 ms | Bytes/Frame | B/Zelle | CPU % | Missed |
+| Impl | Variant | Target | Achieved fps | p50 ms | p95 ms | p99 ms | Bytes/frame | B/cell | CPU % | Missed |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | baseline | default | 30 | 30.0 | 0.44 | 0.85 | 1.32 | 6 785 | 17.2 | 1.5 | 0 |
 | baseline | nosync | 30 | 30.0 | 0.51 | 1.29 | 1.88 | 6 769 | 17.2 | 1.6 | 0 |
@@ -175,41 +174,39 @@ CSS-Engine, 12 Layout-Engines und die Medien-Backends unbedingt mitkommen.
 | termisu | nosync | 60 | 58.1 | 2.50 | 4.40 | 5.64 | 6 779 | 17.2 | 15.2 | 0 |
 | termisu | systimer | 60 | 62.4 | 2.57 | 4.67 | 5.96 | 6 795 | 17.3 | 16.2 | 0 |
 
-## Weitere Beobachtungen, die in die Entscheidung eingeflossen sind
+## Further observations that fed into the decision
 
-**Signal-Handling.** termisu trappt nur `WINCH` — kein `INT`, kein `TERM`, kein
-`at_exit`-Restore. Direkt nachgemessen (`bench/restore_check.py`): ein Signal hinterlässt
-Raw-Mode und Alt-Screen, der Cursor bleibt unsichtbar. Normales Programmende stellt
-sauber wieder her. sk_tui trappt `INT` und `TERM` (Code gelesen, nicht gemessen — der
-Benchmark umgeht sein `Terminal.init`), crysterm hat ein vollständiges
-`at_exit`-Restore-Netz. **Für eine Library auf termisu ist das die erste Lücke, die du
-schließen musst.**
+**Signal handling.** termisu traps only `WINCH` — no `INT`, no `TERM`, no `at_exit`
+restore. Measured directly (`bench/restore_check.py`): a signal leaves raw mode and the
+alternate screen behind, with the cursor invisible. A normal exit restores cleanly.
+sk_tui traps `INT` and `TERM` (read in the code, not measured — the benchmark bypasses
+its `Terminal.init`); crysterm has a complete `at_exit` restore net. **For a library
+built on termisu this is the first gap to close.**
 
-**Build-Zeit.** termisu und sk_tui bauen im Release in Sekunden, crysterm in ~25 Minuten
-(Debug: 28 s). Bei iterativer CLI-Entwicklung ist das ein täglich spürbarer Preis.
+**Build time.** termisu and sk_tui build in release in seconds, crysterm in ~25 minutes
+(debug: 28 s). For iterative CLI development that is a price paid daily.
 
-**Reifegrad und Wartung.** crysterm ist bei 1.0.0 und aktiv (149★). termisu ist erklärt
-pre-1.0 und „not battle tested", aber sehr aktiv und sichtbar sorgfältig gebaut — der
-Cell-Buffer nutzt einen gepackten `UInt128`-Identitätsschlüssel, Dirty-Ranges pro Zeile
-und interned Graphemes. sk_tui ist jung, aber täglich in Bewegung; im Hot Path
-(`Buffer#set`) stehen allerdings zwei `ENV[]`-Lookups pro Zellschreibvorgang und ein
-`Set(Tuple(Int32,Int32))` als Dirty-Tracking, und `#flush` baut jeden Frame per
-`String.build` neu auf — das erklärt seinen Byte- und CPU-Mehrverbrauch.
+**Maturity and maintenance.** crysterm is at 1.0.0 and active (149★). termisu declares
+itself pre-1.0 and "not battle tested", but is very active and visibly carefully built —
+the cell buffer uses a packed `UInt128` identity key, per-row dirty ranges and interned
+graphemes. sk_tui is young but moving daily; its hot path (`Buffer#set`) does contain two
+`ENV[]` lookups per cell write and a `Set(Tuple(Int32,Int32))` for dirty tracking, and
+`#flush` rebuilds every frame through `String.build` — which explains its extra bytes and
+CPU.
 
-**Korrektur zur Vorab-Recherche.** sk_tui hat entgegen seiner Dokumentation sehr wohl
-einen Front/Back-Diff-Renderer (`Tui::Buffer#flush`); es wurde deshalb mitgemessen statt
-ausgeschlossen. crysterm ist inzwischen 1.0.0 und installiert auf macOS ohne Handarbeit —
-`unibilium` und `gpm` machen keine Probleme.
+**A correction to the initial research.** Contrary to its documentation, sk_tui does have
+a front/back diff renderer (`Tui::Buffer#flush`), so it was measured rather than excluded.
+crysterm is at 1.0.0 by now and installs on macOS without hand-holding — `unibilium` and
+`gpm` cause no trouble.
 
-## Methodische Einschränkungen
+## Limits of the method
 
-- Widget- und Layout-Ebenen von crysterm und sk_tui werden bewusst umgangen; gemessen ist
-  der Renderer, nicht der Szenegraph. Eine App, die deren Widgets nutzt, ist langsamer
-  und größer als hier ausgewiesen.
-- Das PTY wird von einem Reader geleert, der nichts zeichnet. Die Zahlen sind damit eine
-  Obergrenze des Durchsatzes, kein Abbild eines echten Terminals.
-- `chunks_per_frame` in `flicker_check.py` misst die PTY-Puffergröße (~1 KB), nicht die
-  Schreib-Granularität der App — als Tearing-Metrik unbrauchbar, nur als Plausibilitäts-
-  Check behalten.
-- crysterms Frame-Zählung stützt sich auf `PreRender`/`Rendered`; da sein Loop selbst
-  koalesziert, sind seine Frames nicht 1:1 die angeforderten Ticks.
+- The widget and layout layers of crysterm and sk_tui are deliberately bypassed; what is
+  measured is the renderer, not the scene graph. An app using their widgets is slower and
+  larger than shown here.
+- The PTY is drained by a reader that draws nothing. The numbers are therefore an upper
+  bound on throughput, not a picture of a real terminal.
+- `chunks_per_frame` in `flicker_check.py` measures the PTY buffer size (~1 KB), not the
+  app's write granularity — useless as a tearing metric, kept only as a sanity check.
+- crysterm's frame counting rests on `PreRender`/`Rendered`; since its loop coalesces on
+  its own, its frames are not 1:1 the requested ticks.

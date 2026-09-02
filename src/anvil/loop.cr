@@ -2,26 +2,24 @@ require "./backend"
 require "./surface"
 
 module Anvil
-  # Die Ereignisschleife: Takt, Neuzeichnen und die zwei Feinheiten, die man
-  # sonst in jedem Projekt neu lernt — Drift-Korrektur und Resize-Entprellung.
+  # The event loop: tick, redraw, and the two subtleties one otherwise learns
+  # again in every project — drift correction and resize debouncing.
   #
-  # Steht getrennt von `App`, damit eine Vollbild-Anwendung sie ohne die
-  # Block- und Modal-Maschinerie benutzen kann.
+  # Kept separate from `App` so that a fullscreen application can use it
+  # without the block and modal machinery.
   class Loop
-    # Ein Fenster am Rand zu ziehen liefert ein WINCH pro Schritt. Auf jedes
-    # davon neu zu zeichnen ist verschwendete Arbeit und sieht wie Flackern
-    # aus; stattdessen wird abgewartet, bis so viele Poll-Fenster still
-    # geblieben sind.
+    # Dragging a window edge delivers one WINCH per step. Redrawing on each of
+    # them is wasted work and reads as flicker; instead the redraw waits until
+    # this many poll windows have stayed quiet.
     RESIZE_SETTLE_TICKS = 3
 
     property poll_interval : Time::Span
     getter? animating : Bool
     getter? running : Bool
 
-    # Die Ereignisquelle ist ein Proc statt des Backends, damit sich die
-    # Schleife ohne Terminal prüfen lässt — Takt und Entprellung sind genau
-    # die Logik, die man testen will, und sie hat mit echter Eingabe nichts
-    # zu tun.
+    # The event source is a Proc rather than the backend so the loop can be
+    # checked without a terminal — tick and debounce are exactly the logic
+    # worth testing, and neither has anything to do with real input.
     def self.for(backend : Backend, **options) : Loop
       new(->(timeout : Time::Span) { backend.poll(timeout) }, **options)
     end
@@ -48,15 +46,13 @@ module Anvil
       @on_draw = block
     end
 
-    # Wird gerufen, wenn die Größenänderung zur Ruhe gekommen ist — nicht bei
-    # jedem einzelnen WINCH.
+    # Called once a resize has settled — not on every individual WINCH.
     def on_resize(&block : -> Nil) : Nil
       @on_resize = block
     end
 
-    # Ein einzelnes Ereignis abholen, ohne die Schleife zu fahren — für
-    # Abfragen, die vor `run` beantwortet werden müssen (ein Vertrauens-
-    # Dialog beim Start etwa).
+    # Fetch a single event without running the loop — for questions that must
+    # be answered before `run` starts (a trust prompt at startup, say).
     def poll(timeout : Time::Span) : Termisu::Event::Any?
       @poll.call(timeout)
     end
@@ -73,11 +69,10 @@ module Anvil
       @stopped = true
     end
 
-    # Die Eingabequelle ist versiegt — ein geschlossenes Terminal, eine
-    # abgespielte Skriptdatei. Anders als `stop` ist das eine Aussage über
-    # die *Welt*, und alles, was auf eine Taste wartet, muss aufhören zu
-    # warten: sonst hängt ein Fiber für immer an einer Frage, die niemand
-    # mehr beantworten kann.
+    # The input source has run dry — a closed terminal, a script played to its
+    # end. Unlike `stop` this is a statement about the *world*, and everything
+    # waiting on a key has to stop waiting: otherwise a fiber hangs forever on
+    # a question nobody can answer any more.
     def input_closed! : Nil
       @closed = true
       @stopped = true
@@ -87,10 +82,10 @@ module Anvil
       @closed
     end
 
-    # Im Animationsbetrieb wird jeder Frame gezeichnet, sonst nur wenn etwas
-    # als schmutzig gemeldet wurde. Für eine Inline-App ist Letzteres richtig:
-    # im Leerlauf gibt es nichts zu zeichnen, und ein Werkzeug, das ohne Grund
-    # 60-mal pro Sekunde aufwacht, ist auf einem Laptop unhöflich.
+    # While animating, every frame is drawn; otherwise only when something
+    # reported itself dirty. The latter is right for an inline app: there is
+    # nothing to draw while idle, and a tool that wakes 60 times a second for
+    # no reason is rude on a laptop.
     def animating=(value : Bool) : Nil
       @animating = value
       @dirty = true if value
@@ -119,10 +114,9 @@ module Anvil
         now = Time.instant
         if (@animating || @dirty) && now >= next_frame
           draw
-          # Fester Zeitschritt statt "jetzt plus Intervall": sonst summiert
-          # sich die Zeichenzeit jedes Frames zu einer Drift auf. Liegt der
-          # Takt bereits zurück, wird auf jetzt aufgeschlossen, statt eine
-          # Aufholjagd zu starten.
+          # A fixed timestep rather than "now plus interval": otherwise each
+          # frame's drawing time accumulates into drift. When the tick is
+          # already behind, catch up to now instead of starting a chase.
           next_frame += @frame_interval
           next_frame = now if next_frame < now
         end
@@ -139,7 +133,7 @@ module Anvil
       @on_event.try &.call(event)
     end
 
-    # Ein Poll-Fenster ohne Ereignis — daraus besteht "das Ziehen ist vorbei".
+    # A poll window with no event — what "the drag is over" is made of.
     private def quiet_tick : Nil
       return if @resize_quiet == 0
       @resize_quiet -= 1

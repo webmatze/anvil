@@ -1,15 +1,15 @@
 require "../src/anvil"
 require "./support/harness"
 
-# Der Fall, der für eine Inline-App zählt.
+# The case that matters for an inline app.
 #
-# Die Fullscreen-Szenarien messen Bytes pro Vollbild-Frame; eine App wie
-# smith zeichnet aber nie ein Vollbild, sondern eine Live-Region von 10–20
-# Zeilen, in der sich pro Frame ein paar Zellen ändern. Die maßgebliche
-# Größe ist deshalb "Bytes pro Redraw der Region".
+# The fullscreen scenarios measure bytes per full-screen frame; an app like
+# smith never draws a full screen, only a live region of 10–20 lines in which
+# a few cells change per frame. The number that counts is therefore "bytes per
+# redraw of the region".
 #
-# BENCH_REGION setzt die Regionshöhe, BENCH_CHANGED wie viele Zeilen sich je
-# Frame ändern.
+# BENCH_REGION sets the region height, BENCH_CHANGED how many lines change per
+# frame.
 config = Bench::Config.new("inline")
 region_height = (ENV["BENCH_REGION"]? || "15").to_i
 changed_lines = (ENV["BENCH_CHANGED"]? || "2").to_i
@@ -22,10 +22,10 @@ accent = Anvil::Text::Style.new(fg: Anvil::Text::Palette::ACCENT)
 dim = Anvil::Text::Style.new(fg: Anvil::Text::Palette::MUTED)
 stats = Bench::FrameStats.new(config.frames)
 
-# Der statische Teil steht einmal und darf sich nie ändern — genau das soll
-# der Diff auch bestätigen: er kostet nach dem ersten Frame nichts mehr.
+# The static part is written once and must never change — which is exactly
+# what the diff should confirm: after the first frame it costs nothing.
 static = (0...surface.height).map do |i|
-  Anvil::Text.line("  Zeile #{i}: unveränderter Inhalt zur Kontrolle", dim)
+  Anvil::Text.line("  line #{i}: unchanged content, as a control", dim)
 end
 
 begin
@@ -44,7 +44,7 @@ begin
       next if y < 0
       line = Anvil::Text::StyledLine.new
       line << Anvil::Text::Span.new("#{spinner[(frame + n) % spinner.size]} ", accent)
-      line << Anvil::Text::Span.new("Frame #{frame}, Zeile #{n}", dim)
+      line << Anvil::Text::Span.new("frame #{frame}, line #{n}", dim)
       surface.put_line(0, y, line)
     end
 
@@ -65,8 +65,8 @@ ensure
 end
 
 stats.report(config, {
-  # Das Szenariofeld der Fullscreen-Läufe passt hier nicht; überschrieben,
-  # damit der Bericht nicht "churn" behauptet.
+  # The scenario field of the fullscreen runs does not fit here; overridden so
+  # the report does not claim "churn".
   "scenario"      => "inline-region",
   "grid"          => "#{surface.width}x#{surface.height}",
   "region_height" => surface.height,

@@ -2,19 +2,17 @@ require "./backend"
 require "./text"
 
 module Anvil
-  # Die Zeichenfläche — der einzige Ort, an dem sich Fullscreen und Inline
-  # unterscheiden. Alles darüber (Blöcke, Editor, Schleife) kennt nur dieses
-  # Protokoll.
+  # The drawing surface — the one place where fullscreen and inline differ.
+  # Everything above it (blocks, editor, loop) knows only this protocol.
   abstract class Surface
     abstract def size : {Int32, Int32}
     abstract def put_cell(x : Int32, y : Int32, grapheme : String, style : Text::Style) : Nil
     abstract def begin_frame : Nil
     abstract def end_frame : Nil
 
-    # Erklärt den Bildschirminhalt für ungültig: der nächste Frame wird
-    # vollständig neu gezeichnet statt gediffed. Nötig, wenn etwas anderes
-    # auf das Terminal geschrieben hat (ein Subprozess) oder der Nutzer
-    # Ctrl-L drückt.
+    # Declares what is on screen invalid: the next frame is drawn in full
+    # instead of diffed. Needed when something else wrote to the terminal (a
+    # subprocess) or the user pressed Ctrl-L.
     abstract def invalidate! : Nil
     abstract def close : Nil
 
@@ -22,22 +20,22 @@ module Anvil
       size[0]
     end
 
-    # --- Fähigkeiten, die nur der Inline-Betrieb wirklich hat ---------------
+    # --- capabilities only the inline mode really has -----------------------
     #
-    # Sie stehen trotzdem hier, mit unschädlichen Vorgaben: so kann dieselbe
-    # App-Schicht auf beiden Betriebsarten laufen, statt dass jede Anwendung
-    # abfragt, in welcher sie steckt. Im Vollbild gibt es keinen Scrollback,
-    # also ist `commit` dort schlicht nichts zu tun.
+    # They live here anyway, with harmless defaults, so that the same app layer
+    # can run on either mode instead of every application asking which one it
+    # is in. Fullscreen has no scrollback, so `commit` there is simply nothing
+    # to do.
 
-    # Schreibt Zeilen dauerhaft oberhalb der Zeichenfläche.
+    # Writes lines permanently above the drawing surface.
     def commit(lines : Array(Text::StyledLine)) : Nil
     end
 
-    # Höhe der Live-Region. Im Vollbild fest.
+    # Height of the live region. Fixed in fullscreen.
     def height=(value : Int32) : Nil
     end
 
-    # Wie hoch die Region höchstens werden darf.
+    # The tallest the region is allowed to get.
     def max_height : Int32
       height
     end
@@ -48,11 +46,11 @@ module Anvil
     def hide_cursor : Nil
     end
 
-    # Nach einer Größenänderung des Fensters.
+    # After the window changed size.
     def resized! : Nil
     end
 
-    # Vollbild-Löschen — nur für die ausdrückliche Wiederherstellung (Ctrl-L).
+    # Full-screen erase — only for an explicit recovery (Ctrl-L).
     def clear_screen : Nil
     end
 
@@ -64,12 +62,12 @@ module Anvil
       put_cell(x, y, char.to_s, style)
     end
 
-    # Schreibt eine gestylte Zeile ab Spalte `x`. Gibt zurück, wie viele
-    # Spalten belegt wurden.
+    # Writes a styled line starting at column `x`. Returns how many columns
+    # were taken.
     #
-    # Liegt hier statt in den Implementierungen, weil beide Betriebsarten
-    # dasselbe meinen: Grapheme für Grapheme in Zellen, mit korrekter Breite
-    # für CJK und Emoji. Nur das Setzen einer Zelle unterscheidet sie.
+    # It lives here rather than in the implementations because both modes mean
+    # the same thing by it: grapheme by grapheme into cells, with the right
+    # width for CJK and emoji. Only setting a single cell differs.
     def put(x : Int32, y : Int32, line : Text::StyledLine) : Int32
       col = x
       w = width
@@ -85,8 +83,8 @@ module Anvil
       col - x
     end
 
-    # Wie `put`, füllt den Zeilenrest aber mit Leerzeichen. Ohne das bleiben
-    # Reste des vorigen Frames stehen, wo die neue Zeile kürzer ist.
+    # Like `put`, but fills the rest of the line with spaces. Without it,
+    # leftovers of the previous frame stay wherever the new line is shorter.
     def put_line(x : Int32, y : Int32, line : Text::StyledLine,
                  style : Text::Style = Text::Style::NONE) : Nil
       col = x + put(x, y, line)

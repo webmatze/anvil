@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Fährt die Demo-App durch ein PTY und prüft, was sie erzeugt.
+"""Runs the demo app through a PTY and inspects what it produces.
 
-Simuliert eine Sitzung: etwas tippen, absenden, den modalen Dialog
-beantworten, beenden. Ohne diesen Test wäre die App-Schicht nur durch
-Specs ohne Terminal abgedeckt.
+It plays a session: type something, submit, answer the modal question, quit.
+Without this, the app layer would only be covered by specs that never touch a
+terminal.
 """
 import os, pty, fcntl, termios, struct, select, time, sys, re
 
@@ -45,39 +45,40 @@ def run(script, rows=24, cols=80, budget=25):
     return out
 
 script = [
-    (1.0, b"hallo gefahr\r"),   # Vorgang mit modaler Rueckfrage
-    (4.0, b"j"),                # freigeben
-    (2.0, b"quit\r"),           # beenden
+    (1.0, b"hello danger\r"),   # a turn with a modal question
+    (4.0, b"y"),                # approve
+    (2.0, b"quit\r"),           # quit
     (1.5, None),
 ]
 out = run(script)
 txt = out.decode("utf-8", "replace")
 
 checks = [
-    ("kein Alternate Screen", b"\x1b[?1049h" not in out),
-    ("Bracketed Paste eingeschaltet", "\x1b[?2004h" in txt),
-    ("Eingabe erscheint in der Zeile", "hallo gefahr" in txt),
-    ("streamende Antwort gezeichnet", "streamende Antwort" in txt),
-    ("modale Rueckfrage gezeigt", "Wirklich ausführen?" in txt),
-    ("Freigabe wirkt", "ausgeführt" in txt),
-    ("Werkzeug abgeschlossen", "✓" in txt and "Bash" in txt),
-    ("Cursor am Ende sichtbar", "\x1b[?25h" in txt[-400:]),
-    ("Bracketed Paste wieder aus", "\x1b[?2004l" in txt),
-    ("relative Adressierung", len(re.findall(r"\x1b\[\d+[AB]", txt)) > 0
+    ("no alternate screen", b"\x1b[?1049h" not in out),
+    ("bracketed paste enabled", "\x1b[?2004h" in txt),
+    ("input appears in the line", "hello danger" in txt),
+    ("streaming answer drawn", "streaming answer" in txt),
+    ("modal question shown", "Really run this?" in txt),
+    ("approval takes effect", "ran it" in txt),
+    ("tool completed", "✓" in txt and "Bash" in txt),
+    ("cursor visible at the end", "\x1b[?25h" in txt[-400:]),
+    ("bracketed paste turned off again", "\x1b[?2004l" in txt),
+    ("relative addressing", len(re.findall(r"\x1b\[\d+[AB]", txt)) > 0
                               and len(re.findall(r"\x1b\[\d+;\d+H", txt)) == 0),
-    # Crystals Standard-Log-Backend schreibt nach STDERR; teilen sich stdout
-    # und stderr ein Terminal, landen die Meldungen der Bibliothek mitten im
-    # Bild. Der Test bindet stderr bewusst ans selbe PTY, damit das auffaellt.
-    ("keine Bibliotheks-Logs im Bild",
+    # Crystal's default log backend writes to STDERR; when stdout and stderr
+    # share a terminal, the library's messages land in the middle of the
+    # picture. This test deliberately binds stderr to the same PTY so that
+    # shows up.
+    ("no library logs in the picture",
      "termisu.terminfo" not in txt and "termisu.event" not in txt
      and "INFO -" not in txt),
-    # Ohne abschliessenden Umbruch zeigt zsh seine "unvollstaendige Zeile"-Marke.
-    ("endet mit vollstaendiger Zeile", txt.endswith("\n") or txt.endswith("\r\n")),
+    # Without a closing newline zsh shows its "incomplete line" marker.
+    ("ends with a complete line", txt.endswith("\n") or txt.endswith("\r\n")),
 ]
 
-print(f"{len(out)} Bytes erzeugt\n")
+print(f"{len(out)} bytes produced\n")
 ok = True
 for name, good in checks:
-    print(f"  [{'ok' if good else 'FEHLER'}] {name}")
+    print(f"  [{'ok' if good else 'FAIL'}] {name}")
     ok &= good
 sys.exit(0 if ok else 1)

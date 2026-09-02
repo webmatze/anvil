@@ -2,13 +2,13 @@ require "termisu"
 require "../text"
 
 module Anvil::Widgets
-  # Einzeiliger Eingabezeileneditor mit History.
+  # A single-line input editor with history.
   #
-  # Der Puffer ist eine Liste von Grapheme-Clustern, nicht von Zeichen: nur so
-  # bewegt sich der Cursor um *ein* sichtbares Zeichen, wenn dieses aus
-  # mehreren Codepoints besteht (Emoji mit Variation Selector, e + Akzent).
-  # Die Spaltenrechnung geht durch dieselbe Breitenfunktion wie der Renderer,
-  # sonst steht der Cursor bei CJK-Text an der falschen Stelle.
+  # The buffer is a list of grapheme clusters, not of characters: only that way
+  # does the cursor move by *one* visible character when that character is made
+  # of several codepoints (an emoji with a variation selector, e + accent).
+  # Column arithmetic goes through the same width function as the renderer, or
+  # the cursor would sit in the wrong place in CJK text.
   class InputEditor
     getter cursor : Int32
     getter history : Array(String)
@@ -41,7 +41,7 @@ module Anvil::Widgets
       @cursor = @buffer.size
     end
 
-    # Spalten links vom Cursor — was die Surface braucht, um ihn zu setzen.
+    # Columns to the left of the cursor — what the surface needs to place it.
     def columns_before_cursor : Int32
       w = 0
       i = 0
@@ -56,14 +56,14 @@ module Anvil::Widgets
       @buffer.sum { |g| Text.grapheme_width(g) }
     end
 
-    # Verarbeitet eine Taste. Liefert den abgesendeten Text bei Enter,
-    # sonst `nil`. Tasten, die den Editor nichts angehen, werden ignoriert —
-    # die App-Schleife sieht sie ohnehin zuerst.
+    # Handles a key. Returns the submitted text on Enter, `nil` otherwise.
+    # Keys that are none of the editor's business are ignored — the app loop
+    # sees them first anyway.
     def handle(event : Termisu::Event::Key) : String?
       key = event.key
 
-      # Innerhalb eines Einfügevorgangs ist jedes Zeichen Nutzlast, auch
-      # Enter: sonst löst mehrzeiliges Einfügen pro Zeile ein Absenden aus.
+      # Inside a paste every character is payload, Enter included: otherwise a
+      # multi-line paste submits once per line.
       case key
       when .paste_start? then @pasting = true; return nil
       when .paste_end?   then @pasting = false; return nil
@@ -97,19 +97,19 @@ module Anvil::Widgets
       nil
     end
 
-    # Achtung: bei einer Ctrl-Taste liefert der Parser das Key-Enum und
-    # `char` bleibt leer (Ctrl-A ist `Key::LowerA` plus Modifier). Der
-    # Buchstabe muss also aus dem Enum kommen, nicht aus `char`.
+    # Careful: for a Ctrl key the parser supplies the key enum and leaves
+    # `char` empty (Ctrl-A is `Key::LowerA` plus the modifier). So the letter
+    # has to come from the enum, not from `char`.
     private def handle_ctrl(event : Termisu::Event::Key) : Nil
       case event.key.to_char
       when 'a' then @cursor = 0
       when 'e' then @cursor = @buffer.size
       when 'b' then @cursor -= 1 if @cursor > 0
       when 'f' then @cursor += 1 if @cursor < @buffer.size
-      when 'u' # bis zum Anfang löschen
+      when 'u' # kill to start
         @buffer = @buffer[@cursor..]
         @cursor = 0
-      when 'k' # bis zum Ende löschen
+      when 'k' # kill to end
         @buffer = @buffer[0...@cursor]
       when 'w' then kill_word_back
       end
@@ -127,12 +127,11 @@ module Anvil::Widgets
       @cursor = i
     end
 
-    # Text an der Cursorposition einfügen — für Einfügevorgänge und alles,
-    # was den Puffer von außen füllt.
+    # Inserts text at the cursor — for pastes and anything else that fills the
+    # buffer from outside.
     #
-    # Zeilenumbrüche werden zu Leerzeichen geglättet: sie würden das
-    # einzeilige Layout sprengen, und ein Umbruch in der Eingabezeile wäre
-    # ohnehin nicht darstellbar.
+    # Newlines are flattened to spaces: they would break the single-line
+    # layout, and a line break in the input line could not be shown anyway.
     def insert_text(text : String) : Nil
       insert(text.gsub(/\s*\n\s*/, " "))
     end
@@ -143,8 +142,8 @@ module Anvil::Widgets
       @cursor += gs.size
     end
 
-    # Zeilenumbrüche im eingefügten Text würden das einzeilige Layout
-    # sprengen; sie werden zu Leerzeichen geglättet.
+    # Newlines in pasted text would break the single-line layout; they are
+    # flattened to spaces.
     private def insert_pasted(event : Termisu::Event::Key) : Nil
       if event.key.enter?
         insert(" ") unless @buffer.last? == " "
@@ -173,8 +172,8 @@ module Anvil::Widgets
       value
     end
 
-    # Beim ersten Schritt nach oben wird der angefangene Text gesichert, damit
-    # der Weg zurück ihn wiederbringt.
+    # The first step upwards saves the half-typed text, so the way back brings
+    # it again.
     private def history_previous : Nil
       return if @history.empty? || @history_index == 0
       @draft = text if @history_index == @history.size
@@ -198,9 +197,8 @@ module Anvil::Widgets
       out
     end
 
-    # Die sichtbare Zeile plus die Cursorspalte darin, horizontal gescrollt,
-    # wenn der Text breiter ist als das Feld. Der Cursor bleibt dabei immer
-    # im Bild.
+    # The visible line plus the cursor column inside it, scrolled horizontally
+    # when the text is wider than the field. The cursor always stays in view.
     def view(width : Int32, style : Text::Style = Text::Style::NONE) : {Text::StyledLine, Int32}
       return {Text::EMPTY_LINE.dup, 0} if width <= 0
 

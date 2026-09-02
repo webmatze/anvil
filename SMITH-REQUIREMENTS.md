@@ -1,123 +1,124 @@
-# Was die Library mindestens können muss, um smith zu tragen
+# What the library has to do, minimally, to carry smith
 
-Analyse von `webmatze/smith` v0.3.0 (16 602 LOC gesamt, davon 2 687 in `src/smith/ui/`).
+An analysis of `webmatze/smith` v0.3.0 (16,602 LOC total, 2,687 of them in
+`src/smith/ui/`). Written before the library existed; kept because it is where the
+requirements came from.
 
-## Der Befund, der den Zuschnitt ändert
+## The finding that changed the shape of it
 
-**smith ist keine Alt-Screen-App.** Aus dem eigenen Kommentar in `src/smith/ui/app.cr:15`:
+**smith is not an alternate-screen app.** From its own comment in `src/smith/ui/app.cr`:
 
 > Rendering model (same as Claude Code): finished blocks are flushed into the normal
 > scrollback once; the live region at the bottom — streaming text, running tools, status
 > bar, input — is redrawn in place every tick. No alternate screen, so the transcript
 > stays in the terminal's scrollback and can be copied and searched like any other output.
 
-Das ist ein grundlegend anderes Modell als das, was der Benchmark gemessen hat. Konkret:
+That is a fundamentally different model from the one the benchmark measured:
 
-| | Fullscreen (Benchmark) | Inline (smith) |
+| | Fullscreen (benchmarked) | Inline (smith) |
 |---|---|---|
-| Bildschirm | Alt-Screen, App besitzt das ganze Raster | normaler Scrollback |
-| Adressierung | absolute Zeilen `ESC[y;xH` | relativ, `ESC[nA` + `ESC[2K` ab Cursor |
-| Zustand | ein Cell-Buffer über die volle Höhe | fertige Blöcke wandern in die History, nur die unteren *n* Zeilen sind lebendig |
-| Höhe | fix (Terminalhöhe) | variabel, ändert sich mit dem Inhalt jeden Frame |
-| Scrollback | keins (Alt-Screen) | ist das Feature |
+| Screen | alternate screen, app owns the whole grid | the normal scrollback |
+| Addressing | absolute rows, `ESC[y;xH` | relative, `ESC[nA` plus erase from the cursor |
+| State | one cell buffer over the full height | finished blocks move into the history, only the bottom *n* rows are alive |
+| Height | fixed (terminal height) | variable, changes with the content every frame |
+| Scrollback | none (alternate screen) | is the feature |
 
-**termisu kann diesen Modus nicht.** `Termisu.new` betritt bedingungslos den Alt-Screen
-(`lib/termisu/src/termisu.cr:71`), und `Buffer#render_to` adressiert Zeilen absolut ab 0.
+**termisu cannot do this mode.** `Termisu.new` unconditionally enters the alternate
+screen, and `Buffer#render_to` addresses rows absolutely from 0.
 
-Die gute Nachricht: `Termisu::Renderer` ist eine saubere abstrakte Klasse, und
-`Buffer#render_to(renderer)` nimmt jede Implementierung davon. Der Inline-Modus ist also
-**ein eigener Renderer**, der `move_cursor(x, y)` auf relative Bewegungen innerhalb einer
-am unteren Rand verankerten Region übersetzt — nicht ein Fork von termisu. Das ist der
-wichtigste Einzelbaustein der Library.
+The good news: `Termisu::Renderer` is a clean abstract class, and
+`Buffer#render_to(renderer)` accepts any implementation of it. So the inline mode is
+**a renderer of its own**, translating `move_cursor(x, y)` into relative movement inside
+a region anchored at the bottom — not a fork of termisu. That is the single most
+important building block of the library.
 
-## Mindest-Inventar
+## Minimum inventory
 
-### 1. Backend / Terminal
-| Element | Woher |
+### 1. Backend / terminal
+| Element | From where |
 |---|---|
-| Raw-Mode ohne `ISIG`/`ICRNL` (Ctrl-C als Taste, Enter ≠ Ctrl-J) | **termisu** ✓ (`termios.cr`, korrekt gelöst) |
-| Größe per `TIOCGWINSZ`, Fallback `COLUMNS`/`LINES` | **termisu** ✓ (Fallback fehlt, ~5 Zeilen) |
-| Bracketed Paste | **termisu** ✓ |
-| Alt-Screen betreten/verlassen | **termisu** ✓ |
-| **Terminal-Restore bei `INT`/`TERM` + `at_exit`** | **wir** — termisu trappt nur `WINCH`; smith macht das heute selbst (`terminal.cr:322`) |
+| Raw mode without `ISIG`/`ICRNL` (Ctrl-C as a key, Enter ≠ Ctrl-J) | **termisu** ✓ (`termios.cr`, correctly solved) |
+| Size via `TIOCGWINSZ`, falling back to `COLUMNS`/`LINES` | **termisu** ✓ (fallback missing, ~5 lines) |
+| Bracketed paste | **termisu** ✓ |
+| Entering / leaving the alternate screen | **termisu** ✓ |
+| **Terminal restore on `INT`/`TERM` plus `at_exit`** | **us** — termisu traps only `WINCH`; smith does it itself today |
 
-### 2. Zwei Render-Modi
-| Element | Woher |
+### 2. Two rendering modes
+| Element | From where |
 |---|---|
-| Cell-Buffer mit Diff, Wide-Chars, Grapheme-Cluster | **termisu** ✓ |
-| Synchronized Output (DEC 2026) | **termisu** ✓ |
-| Fullscreen-Modus (Alt-Screen, absolutes Raster) | **termisu** ✓ |
-| **Inline-Modus: `Renderer`-Implementierung mit relativer Adressierung** | **wir** — der Kern |
-| **Live-Region mit variabler Höhe** (`clear_drawn!` / `draw!`-Zyklus) | **wir** — smith: `app.cr:529` |
-| **Commit von fertigem Inhalt in den Scrollback** (einmalig, nie neu gezeichnet) | **wir** — smith: `flush_blocks!` |
-| **Voller Neuaufbau auf Anforderung** (Ctrl-L, nach Resize) | **wir** — smith: `redraw_all!` |
+| Cell buffer with diff, wide characters, grapheme clusters | **termisu** ✓ |
+| Synchronized output (DEC 2026) | **termisu** ✓ |
+| Fullscreen mode (alternate screen, absolute grid) | **termisu** ✓ |
+| **Inline mode: a `Renderer` implementation with relative addressing** | **us** — the core |
+| **Live region with a variable height** | **us** — smith's `clear_drawn!` / `draw!` cycle |
+| **Committing finished content to the scrollback** (once, never redrawn) | **us** — smith's `flush_blocks!` |
+| **A full rebuild on request** (Ctrl-L, after a resize) | **us** — smith's `redraw_all!` |
 
-### 3. Styled-Text-Schicht
-termisu ist ein *Cell*-Buffer und kennt keine Zeilen, Spans oder Umbrüche. smith hat das
-komplett selbst gebaut (`style.cr`, 263 LOC) — das gehört in die Library:
+### 3. The styled-text layer
+termisu is a *cell* buffer and knows nothing of lines, spans or wrapping. smith built all
+of it itself (`style.cr`, 263 LOC) — and it belongs in the library:
 
-| Element | Woher |
+| Element | From where |
 |---|---|
-| `Style` (fg 256-Farben, bold, dim, italic, underline) mit `merge` | **wir** (termisu hat `Color`/`Attribute` als Bausteine) |
-| `Span` = Text + Style, `StyledLine` = `Array(Span)` | **wir** |
-| `display_width` / `char_width` inkl. CJK und Emoji | **termisu** ✓ (`unicode_width.cr`) — smiths eigene Implementierung entfällt |
-| **`wrap(line, width)`** — Umbruch über Span-Grenzen hinweg | **wir** |
-| **`truncate(line, width, ellipsis)`** | **wir** |
-| Rendern einer `StyledLine` in den Cell-Buffer *und* als ANSI-String | **wir** |
-| Palette (benannte Farbrollen statt Zahlen) | **wir** |
+| `Style` (256-color fg, bold, dim, italic, underline) with `merge` | **us** (termisu supplies `Color`/`Attribute` as the parts) |
+| `Span` = text + style, `StyledLine` = `Array(Span)` | **us** |
+| `display_width` / `char_width` including CJK and emoji | **termisu** ✓ (`unicode_width.cr`) — smith's own implementation goes away |
+| **`wrap(line, width)`** — wrapping across span boundaries | **us** |
+| **`truncate(line, width, ellipsis)`** | **us** |
+| Rendering a `StyledLine` into the cell buffer *and* as an ANSI string | **us** |
+| A palette (named color roles instead of numbers) | **us** |
 
-### 4. Block-/Inhaltsmodell
-| Element | Woher |
+### 4. The block / content model
+| Element | From where |
 |---|---|
-| `Block`-Basis: `lines(width) : Array(StyledLine)` + `finalized?` | **wir** — generisch |
-| Lebenszyklus live → finalisiert → in Scrollback committed | **wir** |
-| Konkrete Blöcke (Assistant, Tool, Todos, Thinking, Notice) | **bleibt in smith** — Domäne |
-| Markdown → `StyledLine` (`markdown.cr`, 232 LOC) | **optional Library** — generisch genug, aber kein Muss für v1 |
+| `Block` base: `lines(width) : Array(StyledLine)` plus `finalized?` | **us** — generic |
+| Lifecycle live → finalized → committed to the scrollback | **us** |
+| The concrete blocks (assistant, tool, todos, thinking, notice) | **stays in smith** — domain |
+| Markdown → `StyledLine` (`markdown.cr`, 232 LOC) | **optional** — generic enough, but not required for v1 |
 
-### 5. Eingabe
-| Element | Woher |
+### 5. Input
+| Element | From where |
 |---|---|
-| Key-Parsing inkl. CSI, SS3, UTF-8, Alt+Taste | **termisu** ✓ — deckt smiths `KeyParser` (215 LOC) vollständig ab |
+| Key parsing including CSI, SS3, UTF-8, Alt+key | **termisu** ✓ — covers smith's `KeyParser` (215 LOC) completely |
 | Home/End/Delete/PageUp/F1–F24 | **termisu** ✓ |
-| `Tick`-Event bei Leerlauf (Poll-Fenster ohne Eingabe) | **termisu** ✓ (Timer-Source) |
-| Resize-Event | **termisu** ✓ |
-| **Zeileneditor**: Cursor, History (↑/↓), Ctrl-A/E/B/F/U/K/W, Paste-Flattening | **wir** — smith: `input_editor.cr`, 169 LOC |
-| **Filter-Popup** (Slash-Command-Palette: Query, Auswahl, Fenster) | **wir** — smith: `completions.cr`, 88 LOC, generisch als Listen-Popup |
+| A `Tick` event while idle (a poll window with no input) | **termisu** ✓ (timer source) |
+| Resize events | **termisu** ✓ |
+| **Line editor**: cursor, history (↑/↓), Ctrl-A/E/B/F/U/K/W, paste flattening | **us** — smith's `input_editor.cr`, 169 LOC |
+| **Filter popup** (the slash-command palette: query, selection, window) | **us** — smith's `completions.cr`, 88 LOC, generically a list popup |
 
-### 6. App-Schleife
-| Element | Woher |
+### 6. The app loop
+| Element | From where |
 |---|---|
-| Event-Loop mit Timeout-Poll | **termisu** ✓ |
-| **Fixed-Timestep mit Drift-Korrektur** | **wir** — im Benchmark bestätigt: termisus Timer laufen 3–4 % daneben |
-| **Dirty-Flag statt bedingungslosem Redraw** | **wir** — smith: `mark_dirty` / `needs_draw?` |
-| **Resize-Debounce** (Fensterziehen liefert ein `WINCH` pro Pixelschritt; smith wartet 3 ruhige Poll-Fenster ab, sonst flackert es) | **wir** — `RESIZE_SETTLE_TICKS`, `app.cr:71` |
-| **Zustandsmaschine** Idle / Busy / ModalChar / ModalText / Done | **wir** |
-| **Modale Abfrage über `Channel`**, die einen *anderen* Fiber blockiert, während der Key-Loop weiterläuft | **wir** — `app.cr:148`; für Tool-Approval, Plan-Gate, Trust-Prompt unverzichtbar |
-| **Synchroner Modal-Modus** vor dem Start der Hauptschleife (`modal_sync`) | **wir** — smith braucht das für den Trust-Prompt |
-| Ctrl-L (Neuaufbau), doppeltes Ctrl-C (Interrupt → Abbruch) | **wir** |
-| Cursor-Platzierung in der Eingabezeile inkl. horizontalem Scroll | **wir** |
+| Event loop with a timeout poll | **termisu** ✓ |
+| **Fixed timestep with drift correction** | **us** — confirmed by the benchmark: termisu's timers run 3–4 % off |
+| **A dirty flag instead of an unconditional redraw** | **us** — smith's `mark_dirty` / `needs_draw?` |
+| **Resize debounce** (dragging delivers one `WINCH` per step; smith waits out 3 quiet poll windows, or it flickers) | **us** — smith's `RESIZE_SETTLE_TICKS` |
+| **State machine** idle / busy / modal-char / modal-text / done | **us** |
+| **A modal question over a `Channel`** blocking an *other* fiber while the key loop keeps running | **us** — indispensable for tool approval, the plan gate and the trust prompt |
+| **A synchronous modal** before the main loop starts | **us** — smith needs it for the trust prompt |
+| Ctrl-L (rebuild), double Ctrl-C (interrupt → abort) | **us** |
+| Cursor placement in the input line, horizontal scrolling included | **us** |
 
-## Was das für smith konkret heißt
+## What that meant for smith
 
-Ersetzbar durch die Library: **~1 790 LOC** von smiths 2 687 UI-Zeilen —
-`terminal.cr` (403), `style.cr` (263), `input_editor.cr` (169), `completions.cr` (88)
-und der Großteil von `app.cr` (868). Mit `markdown.cr` wären es ~2 020.
+Replaceable by the library: **~1,790 LOC** of smith's 2,687 UI lines — `terminal.cr`
+(403), `style.cr` (263), `input_editor.cr` (169), `completions.cr` (88) and most of
+`app.cr` (868). With `markdown.cr` it would be ~2,020.
 
-Bleibt in smith: `renderer.cr` (Event-Stream → Blöcke), `gates.cr` (Approver, Plan-Gate,
-Trust-Prompt), `presentation.cr`, die konkreten Block-Typen aus `view_model.cr` und der
-Inhalt der Statusleiste. Alles Domäne, nichts davon gehört in eine TUI-Library.
+Staying in smith: `renderer.cr` (event stream → blocks), `gates.cr` (approver, plan gate,
+trust prompt), `presentation.cr`, the concrete block types from `view_model.cr` and the
+contents of the status bar. All domain, none of it belonging in a TUI library.
 
-## Konsequenz für die Library-Planung
+## Consequences for the plan
 
-1. **Der Inline-Modus ist kein Nachzügler, sondern gleichrangig.** Wenn smith das
-   Integrationsziel ist, muss er in v1 — sonst trägt die Library das Projekt nicht.
-   Ein reiner Fullscreen-Wrapper um termisu wäre für smith wertlos.
-2. **Der Benchmark hat den falschen Modus vermessen.** Die Zahlen gelten weiter für
-   Fullscreen-Apps; für smiths Inline-Modell ist die relevante Größe nicht
-   „Bytes pro Vollbild-Frame", sondern „Bytes pro Redraw der Live-Region" (bei smith
-   typisch 10–20 Zeilen). `bench/` sollte um ein Inline-Szenario ergänzt werden, sobald
-   der Renderer steht.
-3. **Die Styled-Text-Schicht ist der größte Eigenanteil** und in termisu gar nicht
-   vorhanden. Sie ist auch das, was smith heute am meisten Code kostet.
-4. **termisus Beitrag bleibt trotzdem substanziell**: Key-Parsing, Unicode-Breiten,
-   Cell-Diff, Raw-Mode-Details, Bracketed Paste — zusammen der fehleranfälligste Teil.
+1. **Inline mode is not a follow-up, it is equal in rank.** With smith as the
+   integration target it has to be in v1 — otherwise the library does not carry the
+   project. A pure fullscreen wrapper around termisu would be worthless to smith.
+2. **The benchmark measured the wrong mode.** Its numbers still hold for fullscreen
+   apps; for smith's inline model the relevant quantity is not "bytes per full-screen
+   frame" but "bytes per redraw of the live region" (typically 10–20 lines). `bench/`
+   should gain an inline scenario once the renderer exists.
+3. **The styled-text layer is the largest thing to build ourselves** and does not exist
+   in termisu at all. It is also what costs smith the most code today.
+4. **termisu's contribution stays substantial regardless**: key parsing, Unicode widths,
+   the cell diff, raw-mode details, bracketed paste — together the most error-prone part.

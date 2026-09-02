@@ -2,9 +2,9 @@ name: anvil
 version: 0.1.0
 
 description: |
-  Terminal-UI-Library für Crystal, mit zwei Betriebsarten: Fullscreen
-  (Alt-Screen, 30/60 fps) und Inline (Scrollback bleibt, nur eine Live-Region
-  am unteren Rand wird neu gezeichnet).
+  Terminal UI library for Crystal with two modes of operation: fullscreen
+  (alternate screen, 30/60 fps) and inline (the scrollback stays; only a live
+  region at the bottom is redrawn).
 
 authors:
   - Mathias Karstaedt <mathias.karstaedt@gmail.com>

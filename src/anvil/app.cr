@@ -4,17 +4,17 @@ require "./surface/inline"
 require "./widgets/input_editor"
 
 module Anvil
-  # Die Inline-Anwendung: Blocklisten, Live-Region, Eingabezeile und modale
-  # Abfragen — das Modell von smith und Claude Code.
+  # The inline application: block lists, live region, input line and modal
+  # questions — the model smith and Claude Code use.
   #
-  # Fertige Blöcke wandern einmal in den Scrollback; die Region darunter wird
-  # neu gezeichnet, solange sich etwas ändert.
+  # Finished blocks move into the scrollback once; the region below is redrawn
+  # for as long as something changes.
   class App
     enum State
-      Idle      # am Prompt, der Editor bekommt die Tasten
-      Busy      # es läuft etwas, der Nutzer schaut zu
-      ModalChar # wartet auf eine aus einer Menge von Tasten
-      ModalText # wartet auf eine Zeile Text
+      Idle      # at the prompt, the editor gets the keys
+      Busy      # something is running, the user is watching
+      ModalChar # waiting for one of a set of keys
+      ModalText # waiting for a line of text
       Done
     end
 
@@ -23,35 +23,34 @@ module Anvil
     getter state : State
     getter blocks : Array(View::Block)
 
-    # Die Schleife — für Anwendungen, die den Takt selbst beeinflussen wollen.
+    # The loop — for applications that want a say in the tick.
     getter loop : Loop
 
-    # Wie die Statuszeile aussieht, entscheidet die App — hier steht nur,
-    # dass es eine gibt und dass sie nie weggekürzt wird.
+    # What the status line looks like is the app's decision — all that is
+    # settled here is that there is one and that it is never trimmed away.
     property status : Proc(Int32, Text::StyledLine)?
     property prompt : Text::StyledLine
 
-    # Popup-Zeilen über der Eingabe, wenn die App eins offen hat.
+    # Popup lines above the input, when the app has one open.
     property popup : Proc(Int32, Array(Text::StyledLine))?
 
-    # Was mit einer abgesendeten Zeile geschieht. `run` setzt das aus seinem
-    # Block; direkt gesetzt lässt sich die App auch ohne Schleife treiben.
+    # What happens to a submitted line. `run` sets it from its block; set
+    # directly, the app can also be driven without the loop.
     property on_submit : Proc(String, Nil)?
 
-    # Sieht jede Taste vor der Zustandsmaschine. Gibt der Haken `true`
-    # zurück, gilt die Taste als verbraucht und die App rührt sie nicht an.
+    # Sees every key before the state machine. When the hook returns `true`
+    # the key counts as consumed and the app does not touch it.
     #
-    # Dafür da, dass eine Anwendung Tastenbedeutungen behalten kann, die nur
-    # sie kennt — ein offenes Popup, das die Pfeiltasten beansprucht, oder ein
-    # Ctrl-C, das erst die Eingabe leert und dann beendet.
+    # It exists so an application can keep key meanings only it knows — an open
+    # popup claiming the arrow keys, or a Ctrl-C that clears the input first
+    # and quits second.
     property on_key : Proc(Termisu::Event::Key, Bool)?
 
-    # Nach einer zur Ruhe gekommenen Größenänderung, wenn die Fläche schon
-    # nachgeführt und für ungültig erklärt ist. Ob darüber hinaus der ganze
-    # Bildschirm gelöscht gehört, weiß nur die Anwendung: das Terminal hat
-    # den Scrollback neu umbrochen, und ob das zumutbar ist, hängt davon ab,
-    # was dort steht.
-    # Der Wortlaut der Marke, die für weggekürzte Zeilen steht.
+    # After a resize has settled, once the surface has been updated and
+    # invalidated. Whether the whole screen should be wiped on top of that is
+    # something only the application knows: the terminal has reflowed the
+    # scrollback, and whether that is tolerable depends on what is in it.
+    # The wording of the marker standing in for trimmed lines.
     property hidden_marker : Proc(Int32, Text::StyledLine)?
 
     property on_resize : Proc(Nil)?
@@ -81,7 +80,7 @@ module Anvil
       @last_interrupt = Time.instant
     end
 
-    # --- Inhalt --------------------------------------------------------------
+    # --- content --------------------------------------------------------------
 
     def add_block(block : View::Block) : View::Block
       @blocks << block
@@ -101,8 +100,8 @@ module Anvil
       @loop.mark_dirty
     end
 
-    # Alles wegräumen: Blöcke fallen weg, der Bildschirm wird gelöscht. Für
-    # ein ausdrückliches "von vorn" der Anwendung.
+    # Clear everything: blocks are dropped, the screen is wiped. For an
+    # explicit "start over" from the application.
     def clear! : Nil
       @blocks.clear
       @committed = 0
@@ -116,8 +115,7 @@ module Anvil
       mark_dirty
     end
 
-    # Von dem Fiber zu rufen, der die Arbeit gemacht hat: der Prompt kommt
-    # zurück.
+    # To be called from the fiber that did the work: the prompt comes back.
     def idle! : Nil
       self.state = State::Idle if @state.busy?
       mark_dirty
@@ -128,15 +126,15 @@ module Anvil
       @loop.stop
     end
 
-    # --- Modale Abfragen -----------------------------------------------------
+    # --- modal questions ------------------------------------------------------
 
-    # Blockiert den *rufenden* Fiber, bis der Nutzer eine der Tasten drückt.
-    # Die Tastenschleife läuft derweil weiter — ohne das gäbe es keine
-    # Werkzeug-Freigabe mitten in einem laufenden Vorgang.
-    # `cancel` gibt an, womit Escape und Ctrl-C beantwortet werden. Ohne das
-    # ließe sich eine Frage nur mit einer der angebotenen Tasten verlassen —
-    # und "abbrechen" ist bei einer Rückfrage die Erwartung, nicht die
-    # Ausnahme.
+    # Blocks the *calling* fiber until the user presses one of the keys. The
+    # key loop keeps running meanwhile — without that there would be no tool
+    # approval in the middle of a running turn.
+    #
+    # `cancel` says what Escape and Ctrl-C are answered with. Without it a
+    # question could only be left by one of the keys offered — and "cancel" is
+    # the expectation for a prompt, not the exception.
     def ask(header : Text::StyledLine, body : Array(Text::StyledLine),
             keys : Array(Char), hint : Text::StyledLine, cancel : Char? = nil) : Char
       channel = Channel(Char).new(1)
@@ -154,7 +152,7 @@ module Anvil
       answer
     end
 
-    # Dasselbe für eine Zeile Text (Plan-Rückmeldung, freie Antwort).
+    # The same for a line of text (plan feedback, a free-form answer).
     def ask_text(header : Text::StyledLine, body : Array(Text::StyledLine)) : String
       channel = Channel(String).new(1)
       @text_channel = channel
@@ -170,9 +168,9 @@ module Anvil
       answer
     end
 
-    # Wie `ask`, aber mit eigener Tastenschleife — für Fragen, die beantwortet
-    # sein müssen, bevor `run` überhaupt anläuft (ein Vertrauens-Dialog beim
-    # Start). Blockiert den rufenden Fiber, ohne dass die Hauptschleife läuft.
+    # Like `ask`, but with a key loop of its own — for questions that must be
+    # answered before `run` even starts (a trust prompt at startup). It blocks
+    # the calling fiber without the main loop running.
     def ask_sync(header : Text::StyledLine, body : Array(Text::StyledLine),
                  keys : Array(Char), hint : Text::StyledLine, cancel : Char? = nil) : Char
       saved = {@state, @modal_header, @modal_body, @modal_prompt, @modal_keys, @modal_cancel}
@@ -201,10 +199,9 @@ module Anvil
       answer
     end
 
-    # Solange etwas in Arbeit ist, wird durchgehend gezeichnet: Spinner und
-    # Laufzeiten bewegen sich von allein, ohne dass jemand sie als schmutzig
-    # meldet. Im Leerlauf kostet ein Frame dagegen nichts, weil keiner
-    # gezeichnet wird.
+    # While anything is in flight, drawing continues: spinners and elapsed
+    # times move on their own without anyone reporting them dirty. While idle a
+    # frame costs nothing, because none is drawn.
     private def state=(value : State) : Nil
       @state = value
       @loop.animating = !value.idle?
@@ -214,8 +211,8 @@ module Anvil
       @state.modal_char? || @state.modal_text?
     end
 
-    # Beim Herunterfahren offene Fragen auflösen. Ein Fiber, der an einer
-    # `ask` hängt, während die Schleife endet, würde sonst nie zurückkehren.
+    # Resolve open questions on shutdown. A fiber waiting on an `ask` while
+    # the loop ends would otherwise never return.
     private def release_waiters : Nil
       if channel = @char_channel
         @char_channel = nil
@@ -238,7 +235,7 @@ module Anvil
       mark_dirty
     end
 
-    # --- Schleife ------------------------------------------------------------
+    # --- the loop -------------------------------------------------------------
 
     def run(&handler : String -> Nil) : Nil
       @on_submit = handler
@@ -257,8 +254,8 @@ module Anvil
       end
     end
 
-    # Öffentlich, damit Tests (und Einbettungen) Ereignisse einspeisen können,
-    # ohne ein Terminal zu brauchen.
+    # Public so that tests (and embeddings) can feed events without needing a
+    # terminal.
     def handle_event(event : Termisu::Event::Any) : Nil
       return unless event.is_a?(Termisu::Event::Key)
 
@@ -269,9 +266,9 @@ module Anvil
         end
       end
 
-      # Über der Zustandsmaschine, weil ein verwürfelter Bildschirm am
-      # ehesten mitten in einem Vorgang oder unter einem Modal auftritt —
-      # genau den zwei Zuständen, die die Taste sonst schlucken würden.
+      # Above the state machine, because a garbled screen is likeliest
+      # mid-turn or under a modal — exactly the two states that would
+      # otherwise swallow the key.
       if event.ctrl? && event.key.to_char == 'l'
         redraw_all!
         return
@@ -295,8 +292,8 @@ module Anvil
       if submitted = @editor.handle(event)
         return if submitted.strip.empty?
         busy!
-        # Auf einem eigenen Fiber, damit die Tastenschleife weiterläuft: nur
-        # so kann die Arbeit unterwegs eine modale Frage stellen.
+        # On a fiber of its own so the key loop keeps running: only that way
+        # can the work ask a modal question on the way.
         callback = @on_submit
         spawn do
           callback.try &.call(submitted)
@@ -312,9 +309,9 @@ module Anvil
       end
     end
 
-    # Der Buchstabe einer Antworttaste, oder nil wenn die Taste nicht zur
-    # Auswahl gehört. `char` ist bei gewöhnlichen Zeichen gesetzt; das
-    # Key-Enum fängt die Fälle ab, in denen der Parser keins mitgibt.
+    # The letter of an answer key, or nil when the key is not among the
+    # choices. `char` is set for ordinary characters; the key enum covers the
+    # cases where the parser supplies none.
     private def answer_key(event : Termisu::Event::Key) : Char?
       if cancel = @modal_cancel
         return cancel if event.key.escape? || event.ctrl_c?
@@ -333,7 +330,7 @@ module Anvil
       end
     end
 
-    # Ein Ctrl-C bittet um Abbruch, ein zweites kurz darauf beendet.
+    # One Ctrl-C asks to stop, a second one shortly after quits.
     private def interrupt : Nil
       now = Time.instant
       @interrupts = (now - @last_interrupt) < DOUBLE_INTERRUPT_WINDOW ? @interrupts + 1 : 1
@@ -348,10 +345,10 @@ module Anvil
       end
     end
 
-    # --- Zeichnen ------------------------------------------------------------
+    # --- drawing --------------------------------------------------------------
 
-    # Fertige Blöcke einmal in den Scrollback schreiben; danach werden sie nie
-    # wieder angefasst.
+    # Write finished blocks into the scrollback once; after that they are never
+    # touched again.
     private def commit_finished : Nil
       width = @surface.width
       pending = Array(Text::StyledLine).new
@@ -363,7 +360,7 @@ module Anvil
       @surface.commit(pending) unless pending.empty?
     end
 
-    # Baut die Live-Region und zeichnet sie. Öffentlich aus demselben Grund.
+    # Builds the live region and draws it. Public for the same reason.
     def render : Nil
       commit_finished
 
@@ -379,7 +376,7 @@ module Anvil
     private def segments(width : Int32) : Array(View::Segment)
       out = Array(View::Segment).new
 
-      # Blöcke, die noch laufen: sie stehen in der Region, bis sie fertig sind.
+      # Blocks still running: they stay in the region until they are done.
       if @committed < @blocks.size
         live = Array(Text::StyledLine).new
         (@committed...@blocks.size).each_with_index do |i, n|
@@ -390,7 +387,7 @@ module Anvil
       end
 
       if modal_open?
-        # Die Frage bleibt, der Text den sie beschreibt darf weichen.
+        # The question stays; the text it describes may give way.
         out << View::Segment.pinned([@modal_header]) unless @modal_header.empty?
         out << View::Segment.droppable(@modal_body) unless @modal_body.empty?
         unless @modal_prompt.empty?
@@ -429,7 +426,8 @@ module Anvil
       @modal_prompt + line
     end
 
-    # Der Cursor gehört in die Eingabezeile, wenn eine da ist — sonst weg.
+    # The cursor belongs in the input line when there is one — otherwise it
+    # goes away.
     private def place_cursor(height : Int32) : Nil
       unless @state.idle? || @state.modal_text?
         @surface.hide_cursor
@@ -442,13 +440,12 @@ module Anvil
       @surface.cursor_at(Text.width(prefix) + col, height - 1)
     end
 
-    # Bildschirm löschen und den gesamten Verlauf neu ausgeben.
+    # Wipe the screen and re-emit the whole transcript.
     #
-    # Das Zurücksetzen des Commit-Zählers ist der Punkt: ohne das bliebe nach
-    # dem Löschen nur die Live-Region übrig und alles bereits Committete wäre
-    # vom Bild verschwunden. Gebraucht bei Ctrl-L (etwas hat an uns vorbei
-    # geschrieben) und nach einer Größenänderung (das Terminal hat den
-    # Scrollback neu umbrochen).
+    # Resetting the commit counter is the point: without it, only the live
+    # region would remain after the wipe and everything already committed would
+    # be gone from the picture. Needed on Ctrl-L (something wrote past us) and
+    # after a resize (the terminal reflowed the scrollback).
     def redraw_all! : Nil
       @surface.clear_screen
       @committed = 0

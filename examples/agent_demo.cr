@@ -1,17 +1,17 @@
 require "../src/anvil"
 
-# Eine vollständige Inline-App im Zuschnitt von smith: Eingabezeile,
-# Statusleiste, streamende Blöcke, eine modale Rückfrage mitten in der Arbeit
-# und fertige Ergebnisse, die in den Scrollback wandern.
+# A complete inline app in the shape of smith: input line, status bar,
+# streaming blocks, a modal question asked in the middle of the work, and
+# finished results moving into the scrollback.
 #
-# Gedacht zum Ausprobieren im echten Terminal:
+# Meant to be tried in a real terminal:
 #   crystal run examples/agent_demo.cr
 #
-# Eingaben: irgendein Text startet einen "Vorgang". "gefahr" löst die modale
-# Rückfrage aus. "quit" beendet, Ctrl-C zweimal auch.
+# Input: any text starts a "turn". "danger" triggers the modal question.
+# "quit" ends it, as does Ctrl-C twice.
 include Anvil
 
-# Ein Block, der noch wächst — wie streamender Text vom Modell.
+# A block that is still growing — like text streaming from a model.
 class StreamBlock < View::Block
   property text : String
   property? done = false
@@ -30,7 +30,7 @@ class StreamBlock < View::Block
   end
 end
 
-# Ein Werkzeugaufruf mit Zustand — das klassische "läuft / fertig / Fehler".
+# A tool call with state — the classic "running / done / failed".
 class ToolBlock < View::Block
   enum Status
     Running
@@ -68,15 +68,15 @@ end
 
 backend = Backend.new(alternate_screen: false)
 surface = Surface::Inline.new(backend, height: 1)
-# 20 fps genügen: gezeichnet wird ohnehin nur, wenn sich etwas geändert hat.
+# 20 fps is plenty: a frame is only drawn when something changed anyway.
 app = App.new(surface, Loop.for(backend, target_fps: 20))
 
 activity = ""
 turns = 0
 
 app.status = ->(width : Int32) do
-  left = activity.empty? ? "bereit" : activity
-  right = "#{turns} Vorgänge · Ctrl-C zum Beenden"
+  left = activity.empty? ? "ready" : activity
+  right = "#{turns} turns · Ctrl-C to quit"
   gap = width - Text.width(left) - Text.width(right)
   gap = 1 if gap < 1
   line = Text::StyledLine.new
@@ -87,13 +87,13 @@ app.status = ->(width : Int32) do
 end
 
 app.on_interrupt = -> do
-  app.notice("⚠ nochmal Ctrl-C zum Beenden", Text::Style.new(fg: Text::Palette::WARN))
+  app.notice("⚠ Ctrl-C again to quit", Text::Style.new(fg: Text::Palette::WARN))
   nil
 end
 
 app.notice([
-  Text.line("⚒ anvil — Inline-Demo", Text::Style.new(bold: true)),
-  Text.line("Text eingeben startet einen Vorgang · \"gefahr\" fragt nach · \"quit\" beendet",
+  Text.line("⚒ anvil — inline demo", Text::Style.new(bold: true)),
+  Text.line("type anything to start a turn · \"danger\" asks first · \"quit\" ends it",
     Text::Style.new(fg: Text::Palette::MUTED, dim: true)),
 ])
 
@@ -107,9 +107,9 @@ app.run do |input|
 
   app.add_block(View::TextBlock.new("❯ #{input}", Text::Style.new(fg: Text::Palette::MUTED)))
 
-  activity = "denkt nach…"
-  stream = app.add_block(StreamBlock.new("✻ Antwort")).as(StreamBlock)
-  "Das ist eine streamende Antwort, die Wort für Wort ankommt und dabei umbricht, wenn das Fenster schmal ist. ".split(' ').each do |word|
+  activity = "thinking…"
+  stream = app.add_block(StreamBlock.new("✻ Answer")).as(StreamBlock)
+  "This is a streaming answer that arrives word by word and wraps when the window is narrow. ".split(' ').each do |word|
     stream.text += "#{word} "
     app.mark_dirty
     sleep 40.milliseconds
@@ -117,21 +117,21 @@ app.run do |input|
   stream.done = true
 
   tool = app.add_block(ToolBlock.new("Bash", "ls -la")).as(ToolBlock)
-  activity = "führt aus…"
+  activity = "running…"
   app.mark_dirty
   sleep 400.milliseconds
 
-  # Die modale Rückfrage läuft auf diesem Fiber; die Tastenschleife bleibt
-  # derweil bedienbar. Genau das braucht eine Werkzeug-Freigabe.
-  if input.includes?("gefahr")
+  # The modal question runs on this fiber while the key loop stays usable.
+  # That is exactly what a tool approval needs.
+  if input.includes?("danger")
     answer = app.ask(
-      Text.line("Wirklich ausführen?", Text::Style.new(bold: true, fg: Text::Palette::WARN)),
-      [Text.line("  rm -rf /tmp/beispiel", Text::Style.new(fg: Text::Palette::MUTED))],
-      ['j', 'n'],
-      Text.line("[j] ja  [n] nein", Text::Style.new(fg: Text::Palette::ACCENT)))
-    tool.status = answer == 'j' ? ToolBlock::Status::Done : ToolBlock::Status::Failed
-    app.notice(answer == 'j' ? "ausgeführt" : "abgelehnt",
-      Text::Style.new(fg: answer == 'j' ? Text::Palette::SUCCESS : Text::Palette::MUTED))
+      Text.line("Really run this?", Text::Style.new(bold: true, fg: Text::Palette::WARN)),
+      [Text.line("  rm -rf /tmp/example", Text::Style.new(fg: Text::Palette::MUTED))],
+      ['y', 'n'],
+      Text.line("[y] yes  [n] no", Text::Style.new(fg: Text::Palette::ACCENT)))
+    tool.status = answer == 'y' ? ToolBlock::Status::Done : ToolBlock::Status::Failed
+    app.notice(answer == 'y' ? "ran it" : "declined",
+      Text::Style.new(fg: answer == 'y' ? Text::Palette::SUCCESS : Text::Palette::MUTED))
   else
     tool.status = ToolBlock::Status::Done
   end

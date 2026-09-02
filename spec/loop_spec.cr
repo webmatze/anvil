@@ -3,12 +3,12 @@ require "./spec_helper"
 include Anvil
 include KeyFactory
 
-# Eine Ereignisquelle aus einer Liste: liefert der Reihe nach, danach nil
-# (also "Poll-Fenster ohne Ereignis").
+# An event source from a list: hands them out in order, then nil (a "poll
+# window with no event").
 #
-# Wartet die angefragte Zeit tatsächlich ab, wenn nichts da ist — ein echtes
-# `poll` blockiert bis zum Timeout, und ohne dieses Nachstellen dreht die
-# Schleife im Test leer, statt anderen Fibern die Gelegenheit zu geben.
+# It really waits out the requested time when there is nothing — a real `poll`
+# blocks until the timeout, and without imitating that the loop spins in the
+# test instead of giving other fibers their chance.
 private def source(events : Array(Termisu::Event::Any), *, quiet_limit : Int32 = 8, &on_quiet : Int32 -> Nil)
   queue = events.dup
   quiet = 0
@@ -25,7 +25,7 @@ private def source(events : Array(Termisu::Event::Any), *, quiet_limit : Int32 =
 end
 
 describe Anvil::Loop do
-  it "zeichnet einmal zu Beginn und danach nur bei Bedarf" do
+  it "draws once at the start and after that only on demand" do
     draws = 0
     l = uninitialized Loop
     l = Loop.new(source([] of Termisu::Event::Any) { |n| l.stop if n >= 3 }, target_fps: 1000)
@@ -34,17 +34,17 @@ describe Anvil::Loop do
     draws.should eq 1
   end
 
-  it "zeichnet nicht, solange nichts schmutzig ist" do
+  it "does not draw while nothing is dirty" do
     draws = 0
     l = uninitialized Loop
     l = Loop.new(source([] of Termisu::Event::Any) { |n| l.stop if n >= 6 }, target_fps: 1000)
     l.on_draw { draws += 1 }
     l.run
-    # Nur der Eröffnungsframe: ohne mark_dirty gibt es nichts zu tun.
+    # The opening frame only: without mark_dirty there is nothing to do.
     draws.should eq 1
   end
 
-  it "zeichnet nach mark_dirty erneut" do
+  it "draws again after mark_dirty" do
     draws = 0
     l = uninitialized Loop
     events = [KeyFactory.char('x').as(Termisu::Event::Any)]
@@ -55,7 +55,7 @@ describe Anvil::Loop do
     draws.should eq 2
   end
 
-  it "entprellt Größenänderungen: erst nach mehreren stillen Fenstern" do
+  it "debounces resizes: only after several quiet windows" do
     resizes = 0
     quiet_at_first_resize = 0
     l = uninitialized Loop
@@ -64,13 +64,13 @@ describe Anvil::Loop do
     l.on_resize { resizes += 1 }
     l.on_draw { }
     l.run
-    # Genau einmal, nicht einmal je WINCH.
+    # Exactly once, not once per WINCH.
     resizes.should eq 1
   end
 
-  it "meldet mehrere Größenänderungen in Folge nur einmal" do
-    # Ein Fenster zu ziehen liefert ein WINCH pro Schritt; genau dafür ist
-    # die Entprellung da.
+  it "reports a run of resizes only once" do
+    # Dragging a window delivers one WINCH per step; that is what the
+    # debounce is for.
     resizes = 0
     l = uninitialized Loop
     events = Array(Termisu::Event::Any).new(5) { Termisu::Event::Resize.new(80, 24) }
@@ -81,8 +81,8 @@ describe Anvil::Loop do
     resizes.should eq 1
   end
 
-  it "meldet eine Größenänderung nicht als gewöhnliches Ereignis weiter" do
-    # Sonst würde jede App sie doppelt behandeln.
+  it "does not pass a resize on as an ordinary event" do
+    # Otherwise every app would handle it twice.
     seen = 0
     l = uninitialized Loop
     events = [Termisu::Event::Resize.new(80, 24).as(Termisu::Event::Any)]

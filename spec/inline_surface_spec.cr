@@ -2,9 +2,9 @@ require "./spec_helper"
 
 include Anvil
 
-# Ein winziges Rasterterminal: spielt genau das ab, was die Inline-Surface
-# schreibt. Zeilen, die oben herausfallen, bleiben erhalten — das ist der
-# Scrollback, den das Verfahren gerade nicht zerstören darf.
+# A tiny grid terminal: it replays exactly what the inline surface writes.
+# Lines falling off the top are kept — that is the scrollback the whole
+# approach must not destroy.
 class TinyScreen
   getter scrollback : Array(String)
   @grid : Array(Array(Char))
@@ -95,7 +95,7 @@ private def surface(io, height = 3, width = 40, screen = 10)
 end
 
 describe Anvil::Surface::Inline do
-  it "zeichnet die Region an das untere Ende" do
+  it "draws the region at the bottom" do
     io = IO::Memory.new
     s = surface(io, 2)
     s.put_line(0, 0, Text.line("oben"))
@@ -107,7 +107,7 @@ describe Anvil::Surface::Inline do
     lines[1].should eq "unten"
   end
 
-  it "schreibt Committetes dauerhaft über die Region" do
+  it "writes committed content permanently above the region" do
     io = IO::Memory.new
     s = surface(io, 1)
     s.commit([Text.line("bleibt stehen")])
@@ -117,11 +117,11 @@ describe Anvil::Surface::Inline do
     all = TinyScreen.replay(io.to_s).all_lines
     all.should contain "bleibt stehen"
     all.should contain "lebendig"
-    # Reihenfolge: Committetes steht oberhalb der Region.
+    # Order: committed content stands above the region.
     all.index("bleibt stehen").not_nil!.should be < all.index("lebendig").not_nil!
   end
 
-  it "hinterlässt beim Schrumpfen keine Reste der alten Höhe" do
+  it "leaves no remains of the old height when shrinking" do
     io = IO::Memory.new
     s = surface(io, 4)
     (0..3).each { |y| s.put_line(0, y, Text.line("zeile #{y}")) }
@@ -136,16 +136,16 @@ describe Anvil::Surface::Inline do
     lines.should eq ["neu 0", "neu 1"]
   end
 
-  it "deckelt die Höhe auf den Bildschirm" do
-    # Eine höhere Region ließe sich nicht zurücklaufen; jeder Redraw schöbe
-    # eine Kopie in den Scrollback.
+  it "caps the height at the screen" do
+    # A taller region could not be walked back over; every redraw would push
+    # a copy into the scrollback.
     io = IO::Memory.new
     s = surface(io, 1, screen: 6)
     s.height = 99
     s.height.should eq 5
   end
 
-  it "emittiert nur geänderte Zellen" do
+  it "emits only the cells that changed" do
     io = IO::Memory.new
     s = surface(io, 1)
     s.put_line(0, 0, Text.line("gleich"))
@@ -154,11 +154,11 @@ describe Anvil::Surface::Inline do
 
     s.put_line(0, 0, Text.line("gleich"))
     s.end_frame
-    # Nur die Rahmensequenzen des Frames, keine Zellen.
+    # Only the frame's wrapping sequences, no cells.
     (io.to_s.size - before).should be < 30
   end
 
-  it "zeichnet nach invalidate! wieder vollständig" do
+  it "draws in full again after invalidate!" do
     io = IO::Memory.new
     s = surface(io, 1)
     s.put_line(0, 0, Text.line("inhalt"))
@@ -172,11 +172,11 @@ describe Anvil::Surface::Inline do
   end
 end
 
-describe "Anvil::Surface::Inline nach dem Committen" do
-  it "fordert keine Zeilen über die committeten hinaus an" do
-    # Die alte Höhe erneut anzufordern schöbe den Bildschirm zu weit hoch und
-    # ließe eine Lücke unter der Region stehen — genau das, was man sieht,
-    # wenn eine gestreamte Antwort fertig wird.
+describe "Anvil::Surface::Inline after committing" do
+  it "asks for no rows beyond the committed ones" do
+    # Asking for the old height again would push the screen too far up and
+    # leave a gap below the region — exactly what one sees when a streamed
+    # answer finishes.
     io = IO::Memory.new
     s = surface(io, 6)
     (0..5).each { |y| s.put_line(0, y, Text.line("streamt #{y}")) }
@@ -184,12 +184,12 @@ describe "Anvil::Surface::Inline nach dem Committen" do
 
     io.clear
     s.commit([Text.line("fertig 1"), Text.line("fertig 2")])
-    # Zwei Zeilen committet, also genau zwei Zeilenvorschübe.
+    # Two lines committed, so exactly two line feeds.
     io.to_s.scan("\r\n").size.should eq 2
     s.height.should eq 1
   end
 
-  it "wächst danach nur um das, was der neue Frame braucht" do
+  it "then grows only by what the new frame needs" do
     io = IO::Memory.new
     s = surface(io, 6)
     s.commit([Text.line("fertig")])
@@ -199,7 +199,7 @@ describe "Anvil::Surface::Inline nach dem Committen" do
     io.to_s.scan("\r\n").size.should eq 2
   end
 
-  it "lässt keine Lücke unter der Region zurück" do
+  it "leaves no gap below the region" do
     io = IO::Memory.new
     s = surface(io, 5)
     (0..4).each { |y| s.put_line(0, y, Text.line("lang #{y}")) }

@@ -20,7 +20,7 @@ BENCH_FRAMES="$FRAMES" BENCH_VARIANT="$VARIANT" \
   "./bin/$IMPL" 2> >(tee /dev/stderr > "bench/results/interactive-$IMPL-$SCENARIO-$FPS.json")
 
 echo
-echo "Checkliste:"
-echo "  - Tearing / halb gezeichnete Frames sichtbar?"
-echo "  - Cursor wieder sichtbar, Prompt normal, kein Alt-Screen-Rest?"
-echo "  - Terminal reagiert normal auf Eingabe (Raw-Mode zurückgesetzt)?"
+echo "Checklist:"
+echo "  - Any tearing or half-drawn frames?"
+echo "  - Cursor visible again, prompt normal, no alternate-screen remains?"
+echo "  - Does the terminal respond to input normally (raw mode reset)?"

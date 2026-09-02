@@ -1,11 +1,11 @@
 require "../surface"
 
 module Anvil
-  # Zeichenfläche im Speicher — für Tests und für alles, was eine Ausgabe
-  # prüfen statt anzeigen will (Abnahmebilder, Fehlerberichte).
+  # A drawing surface in memory — for tests, and for anything that wants to
+  # inspect output rather than show it (approval snapshots, bug reports).
   #
-  # Hält ein Raster aus Graphemen und merkt sich, was committet wurde. Damit
-  # laufen die Specs der App-Schicht ohne Terminal.
+  # It keeps a grid of graphemes and remembers what was committed, which is
+  # what lets the app layer's specs run without a terminal.
   class Surface::Memory < Surface
     getter commits : Array(Array(Text::StyledLine))
     getter height : Int32
@@ -68,8 +68,8 @@ module Anvil
       @cursor
     end
 
-    # Was auf der Fläche steht, als einfacher Text — ohne nachlaufende
-    # Leerzeichen, damit Erwartungen in Specs lesbar bleiben.
+    # What stands on the surface, as plain text — without trailing spaces, so
+    # expectations in specs stay readable.
     def to_lines : Array(String)
       @grid.map { |row| row.join.rstrip }
     end

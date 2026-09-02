@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Prüft den Inline-Spike headless: rendert ihn in ein PTY, spielt die
-Ausgabe in einen minimalen Terminal-Emulator ein und behauptet über das
-Ergebnis — Scrollback vollständig, kein Alt-Screen, Region sauber."""
+"""Checks inline rendering headlessly: runs the demo on a PTY, replays its
+output into a minimal terminal emulator and asserts on the result — scrollback
+complete, no alternate screen, region clean."""
 import os, pty, fcntl, termios, struct, select, sys, re, time
 
 ROWS, COLS = 24, 80
@@ -37,34 +37,33 @@ def main():
     txt = out.decode("utf-8", "replace")
     checks = []
 
-    checks.append(("kein Alternate Screen", b"\x1b[?1049h" not in out and b"\x1b[?47h" not in out))
-    checks.append(("kein Vollbild-Clear (ESC[2J)", b"\x1b[2J" not in out))
+    checks.append(("no alternate screen", b"\x1b[?1049h" not in out and b"\x1b[?47h" not in out))
+    checks.append(("no full-screen clear (ESC[2J)", b"\x1b[2J" not in out))
 
-    # Der Scrollback muss vollstaendig und in der richtigen Reihenfolge
-    # durchgelaufen sein.
-    order = ["Scrollback-Zeile A", "Scrollback-Zeile B",
-             "committed 1", "committed 2", "committed 3", "Spike beendet"]
+    # The scrollback must have gone through complete and in the right order.
+    order = ["scrollback line A", "scrollback line B",
+             "committed 1", "committed 2", "committed 3", "demo finished"]
     pos, ok, last = [], True, -1
     for needle in order:
         i = txt.find(needle)
         pos.append(i)
         if i < 0 or i < last: ok = False
         last = i
-    checks.append(("Scrollback vollstaendig und in Reihenfolge", ok))
+    checks.append(("scrollback complete and in order", ok))
 
     # Relative Adressierung statt absoluter Cursorpositionierung.
     cup = len(re.findall(r"\x1b\[\d+;\d+H", txt))
     rel = len(re.findall(r"\x1b\[\d+[AB]", txt))
-    checks.append((f"relative Bewegungen genutzt ({rel} CUU/CUD, {cup} absolute CUP)",
+    checks.append((f"relative movement used ({rel} CUU/CUD, {cup} absolute CUP)",
                    rel > 0 and cup == 0))
 
-    checks.append(("Cursor am Ende wieder sichtbar", txt.rstrip().endswith("\r") or "\x1b[?25h" in txt[-200:]))
-    checks.append(("Synchronized Output benutzt", "\x1b[?2026h" in txt))
+    checks.append(("cursor visible again at the end", txt.rstrip().endswith("\r") or "\x1b[?25h" in txt[-200:]))
+    checks.append(("synchronized output used", "\x1b[?2026h" in txt))
 
-    print(f"{len(out)} Bytes erzeugt\n")
+    print(f"{len(out)} bytes produced\n")
     allok = True
     for name, good in checks:
-        print(f"  [{'ok' if good else 'FEHLER'}] {name}")
+        print(f"  [{'ok' if good else 'FAIL'}] {name}")
         allok &= good
     return 0 if allok else 1
 

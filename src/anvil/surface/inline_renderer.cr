@@ -2,17 +2,17 @@ require "termisu"
 require "../text"
 
 module Anvil
-  # Ein `IO`, das Schreibvorgänge in ein `Termisu::Terminal` leitet.
+  # An `IO` that funnels writes into a `Termisu::Terminal`.
   #
-  # Damit spricht der Renderer schlicht `IO`, während die Ausgabe im Betrieb
-  # trotzdem durch denselben Weg geht wie termisus eigene Sequenzen — kein
-  # zweiter Puffer, der sich mit dem ersten verschränken könnte.
+  # It lets the renderer speak plain `IO` while output in production still goes
+  # through the same path as termisu's own sequences — no second buffer that
+  # could interleave with the first.
   class TerminalIO < IO
     def initialize(@terminal : Termisu::Terminal)
     end
 
     def read(slice : Bytes) : Int32
-      raise IO::Error.new("TerminalIO schreibt nur")
+      raise IO::Error.new("TerminalIO is write-only")
     end
 
     def write(slice : Bytes) : Nil
@@ -24,21 +24,20 @@ module Anvil
     end
   end
 
-  # Übersetzt die absoluten Pufferkoordinaten, die `Termisu::Buffer#render_to`
-  # liefert, in Bewegungen innerhalb einer Region, deren obere Kante irgendwo
-  # im Scrollback steht.
+  # Translates the absolute buffer coordinates `Termisu::Buffer#render_to`
+  # hands out into movements inside a region whose top edge sits somewhere in
+  # the scrollback.
   #
-  # Vertikal muss relativ adressiert werden (CUU/CUD): die absolute
-  # Bildschirmzeile der Region ist unbekannt und ändert sich bei jedem Scroll.
-  # Horizontal geht absolut (CHA) — die Region beginnt immer in Spalte 0 und
-  # ist so breit wie das Terminal, das spart die gesamte Spaltenbuchhaltung.
+  # Vertical addressing has to be relative (CUU/CUD): the region's absolute
+  # screen row is unknown and changes on every scroll. Horizontal can be
+  # absolute (CHA) — the region always starts at column 0 and is as wide as the
+  # terminal, which saves all of the column bookkeeping.
   #
-  # Schreibt in ein `IO`, nicht in ein Terminal: so lässt sich eine Region in
-  # einen Speicherpuffer rendern und prüfen, ohne ein echtes Terminal zu
-  # brauchen.
+  # It writes to an `IO`, not to a terminal: that is what allows a region to be
+  # rendered into a memory buffer and inspected without a real terminal.
   class InlineRenderer < Termisu::Renderer
-    # Wo der Cursor steht, in Regionszeilen ab 0. Die Surface hält ihn
-    # zwischen den Frames auf Zeile 0.
+    # Where the cursor stands, in region rows from 0. The surface parks it on
+    # row 0 between frames.
     property row : Int32 = 0
     property height : Int32
     property width : Int32
@@ -90,12 +89,11 @@ module Anvil
       @io << "\e[?25l"
     end
 
-    # --- Stil ---------------------------------------------------------------
+    # --- style --------------------------------------------------------------
     #
-    # Der Puffer meldet Stilwechsel über `apply_sgr`; die granularen Setzer
-    # darunter sind die Rückfallebene der Renderer-Schnittstelle und werden
-    # auf denselben Weg gebracht, damit der zwischengespeicherte Zustand
-    # stimmt.
+    # The buffer reports style changes through `apply_sgr`; the granular
+    # setters below are the renderer interface's fallback and are routed the
+    # same way, so the cached state stays correct.
 
     def apply_sgr(fg : Termisu::Color, bg : Termisu::Color, attr : Termisu::Attribute,
                   old_fg : Termisu::Color?, old_bg : Termisu::Color?,
@@ -126,10 +124,9 @@ module Anvil
       end
     {% end %}
 
-    # Eine einzelne kombinierte SGR-Sequenz je Wechsel statt einer pro
-    # Eigenschaft. Werden Attribute *abgewählt*, muss zurückgesetzt und alles
-    # neu gesetzt werden — dafür gibt es keine Teilrücknahme, die überall
-    # zuverlässig wäre.
+    # One combined SGR sequence per change instead of one per property. When
+    # attributes are *turned off*, everything has to be reset and re-applied —
+    # there is no partial undo for them that is reliable everywhere.
     private def emit_style(fg : Termisu::Color, bg : Termisu::Color,
                            attr : Termisu::Attribute) : Nil
       return if fg == @fg && bg == @bg && attr == @attr

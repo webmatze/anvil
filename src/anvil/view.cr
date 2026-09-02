@@ -1,23 +1,23 @@
 require "./text"
 
 module Anvil::View
-  # Ein Stück Inhalt, das sich auf eine gegebene Breite zeichnen kann.
+  # A piece of content that can draw itself to a given width.
   #
-  # Absichtlich klein gehalten: die Library liefert das Protokoll und den
-  # Lebenszyklus, die konkreten Blöcke gehören der App. Ein Werkzeug für
-  # LLM-Agenten braucht andere als ein Systemmonitor, und beide sind Domäne.
+  # Deliberately small: the library supplies the protocol and the lifecycle,
+  # the concrete blocks belong to the app. A tool for LLM agents needs
+  # different ones than a system monitor, and both are domain.
   abstract class Block
     abstract def lines(width : Int32) : Array(Text::StyledLine)
 
-    # Fertige Blöcke wandern einmal in den Scrollback und werden danach nie
-    # wieder gezeichnet. Solange das hier `false` ist, bleibt der Block in
-    # der Live-Region und darf sich ändern.
+    # Finished blocks move into the scrollback once and are never drawn again.
+    # While this is `false`, the block stays in the live region and is allowed
+    # to change.
     def finalized? : Bool
       true
     end
   end
 
-  # Ein Block aus fertigen Zeilen — für Hinweise, Banner, alles Statische.
+  # A block of ready-made lines — for notices, banners, anything static.
   class TextBlock < Block
     getter source : Array(Text::StyledLine)
 
@@ -35,11 +35,11 @@ module Anvil::View
     end
   end
 
-  # Ein Abschnitt der Live-Region. `pinned` heißt: darf nie wegfallen.
+  # A section of the live region. `pinned` means: must never be dropped.
   #
-  # Die Statusleiste und die Eingabezeile sind angeheftet, laufende Blöcke
-  # und Popups nicht — auf einem zu kleinen Schirm ist die Eingabe mehr wert
-  # als die Liste, die anbietet, sie zu füllen.
+  # The status bar and the input line are pinned, running blocks and popups are
+  # not — on a screen too small, the input is worth more than the list offering
+  # to fill it.
   record Segment, lines : Array(Text::StyledLine), pinned : Bool do
     def self.pinned(lines : Array(Text::StyledLine))
       new(lines, true)
@@ -50,23 +50,22 @@ module Anvil::View
     end
   end
 
-  # Setzt die Live-Region aus Abschnitten zusammen und beschneidet sie auf die
-  # verfügbare Höhe.
+  # Assembles the live region from its sections and trims it to the height
+  # available.
   #
-  # Die Region wird an Ort und Stelle neu gezeichnet, was nur funktioniert,
-  # solange sie auf den Bildschirm passt (siehe `Surface::Inline#max_height`).
-  # Passt sie nicht, fallen nicht-angeheftete Zeilen weg — die ältesten
-  # zuerst, hinter einer Marke, die sagt wie viele.
+  # The region is redrawn in place, which only works while it fits on the
+  # screen (see `Surface::Inline#max_height`). When it does not, unpinned lines
+  # give way — the oldest first, behind a marker saying how many went.
   module Region
     DEFAULT_MARKER_STYLE = Text::Style.new(fg: Text::Palette::MUTED, dim: true)
 
-    # Die Vorgabe für die Marke, die für die weggefallenen Zeilen steht.
+    # The default marker standing in for the lines that were dropped.
     def self.default_marker(hidden : Int32) : Text::StyledLine
       Text.line("⋮ #{hidden} more line#{hidden == 1 ? "" : "s"} above", DEFAULT_MARKER_STYLE)
     end
 
-    # `marker` baut die Zeile, die anstelle des Weggefallenen steht — die
-    # Anwendung bestimmt ihren Wortlaut, die Library nur, dass es eine gibt.
+    # `marker` builds the line that stands in for what was dropped — the
+    # application decides its wording, the library only that there is one.
     def self.compose(segments : Array(Segment), height : Int32,
                      marker : Proc(Int32, Text::StyledLine)? = nil) : Array(Text::StyledLine)
       budget = height < 1 ? 1 : height
@@ -74,8 +73,8 @@ module Anvil::View
       return segments.flat_map(&.lines) if total <= budget
 
       pinned = segments.sum { |s| s.pinned ? s.lines.size : 0 }
-      # Die Marke kostet eine eigene Zeile, und zwar aus dem Platz, den die
-      # angehefteten Zeilen übrig lassen.
+      # The marker costs a line of its own, taken from the room the pinned
+      # lines leave behind.
       room = budget - pinned - 1
       room = 0 if room < 0
 
@@ -101,12 +100,11 @@ module Anvil::View
 
       return region if region.size <= budget
 
-      # Ein Schirm, auf den nicht einmal die angehefteten Zeilen passen. Was
-      # überlebt, ist das *untere* Ende — Statusleiste und Eingabe, ohne die
-      # der Nutzer nichts tun kann. Beginnt die Region mit einer angehefteten
-      # Zeile (der Frage, auf die sich alles bezieht), behält sie ihre Zeile
-      # darüber: Tasten, die ein unbenanntes Etwas beantworten, sind weniger
-      # wert als die Frage selbst.
+      # A screen too small even for the pinned lines. What survives is the
+      # *bottom* — status bar and input, without which the user can do nothing.
+      # If the region starts with a pinned line (the question everything else
+      # refers to), it keeps its row above them: keys answering an unnamed
+      # thing are worth less than the question itself.
       head = (first = segments.first?) && first.pinned && !first.lines.empty? ? [first.lines.first] : Array(Text::StyledLine).new
       head = Array(Text::StyledLine).new if head.size >= budget
       keep = budget - head.size

@@ -8,7 +8,7 @@ private def editor(history = [] of String)
 end
 
 describe Anvil::Widgets::InputEditor do
-  it "nimmt Text auf und meldet ihn beim Absenden" do
+  it "collects text and reports it on submit" do
     e = editor
     type(e, "hallo")
     e.text.should eq "hallo"
@@ -16,7 +16,7 @@ describe Anvil::Widgets::InputEditor do
     e.text.should eq ""
   end
 
-  it "fügt an der Cursorposition ein, nicht am Ende" do
+  it "inserts at the cursor, not at the end" do
     e = editor
     type(e, "hllo")
     3.times { e.handle(special(Termisu::Input::Key::Left)) }
@@ -24,7 +24,7 @@ describe Anvil::Widgets::InputEditor do
     e.text.should eq "hallo"
   end
 
-  it "löscht rückwärts und vorwärts" do
+  it "deletes backwards and forwards" do
     e = editor
     type(e, "abc")
     e.handle(special(Termisu::Input::Key::Backspace))
@@ -35,7 +35,7 @@ describe Anvil::Widgets::InputEditor do
   end
 
   describe "Ctrl-Tasten" do
-    it "a/e springen an Anfang und Ende" do
+    it "a/e jump to start and end" do
       e = editor
       type(e, "abc")
       e.handle(ctrl('a'))
@@ -44,7 +44,7 @@ describe Anvil::Widgets::InputEditor do
       e.cursor.should eq 3
     end
 
-    it "u löscht bis zum Anfang, k bis zum Ende" do
+    it "u kills to the start, k to the end" do
       e = editor
       type(e, "abcdef")
       3.times { e.handle(special(Termisu::Input::Key::Left)) }
@@ -55,7 +55,7 @@ describe Anvil::Widgets::InputEditor do
       e.text.should eq ""
     end
 
-    it "w löscht ein Wort rückwärts, samt vorangehender Leerzeichen" do
+    it "w kills a word backwards, leading spaces included" do
       e = editor
       type(e, "eins zwei drei")
       e.handle(ctrl('w'))
@@ -65,8 +65,8 @@ describe Anvil::Widgets::InputEditor do
     end
   end
 
-  describe "History" do
-    it "holt frühere Eingaben mit hoch und runter zurück" do
+  describe "history" do
+    it "recalls earlier entries with up and down" do
       e = editor(["erste", "zweite"])
       e.handle(special(Termisu::Input::Key::Up))
       e.text.should eq "zweite"
@@ -76,7 +76,7 @@ describe Anvil::Widgets::InputEditor do
       e.text.should eq "zweite"
     end
 
-    it "bewahrt den angefangenen Text und bringt ihn zurück" do
+    it "keeps the half-typed text and brings it back" do
       e = editor(["alt"])
       type(e, "angefangen")
       e.handle(special(Termisu::Input::Key::Up))
@@ -85,7 +85,7 @@ describe Anvil::Widgets::InputEditor do
       e.text.should eq "angefangen"
     end
 
-    it "nimmt Abgesendetes auf, aber keine Wiederholung" do
+    it "records submissions but not a repeat" do
       e = editor
       type(e, "x")
       e.handle(special(Termisu::Input::Key::Enter))
@@ -94,7 +94,7 @@ describe Anvil::Widgets::InputEditor do
       e.history.should eq ["x"]
     end
 
-    it "nimmt Leeres nicht auf" do
+    it "does not record blank input" do
       e = editor
       type(e, "   ")
       e.handle(special(Termisu::Input::Key::Enter))
@@ -102,8 +102,8 @@ describe Anvil::Widgets::InputEditor do
     end
   end
 
-  describe "Einfügen" do
-    it "sendet mitten im Einfügen nicht ab" do
+  describe "pasting" do
+    it "does not submit in the middle of a paste" do
       e = editor
       e.handle(special(Termisu::Input::Key::PasteStart))
       type(e, "eins")
@@ -113,7 +113,7 @@ describe Anvil::Widgets::InputEditor do
       e.text.should eq "eins zwei"
     end
 
-    it "sendet nach dem Einfügen wieder normal ab" do
+    it "submits normally again after a paste" do
       e = editor
       e.handle(special(Termisu::Input::Key::PasteStart))
       type(e, "x")
@@ -122,8 +122,8 @@ describe Anvil::Widgets::InputEditor do
     end
   end
 
-  describe "Breiten und Cursor" do
-    it "rechnet Cursorspalten in Spalten, nicht in Zeichen" do
+  describe "widths and cursor" do
+    it "counts cursor columns in columns, not characters" do
       e = editor
       type(e, "中文")
       e.columns_before_cursor.should eq 4
@@ -131,7 +131,7 @@ describe Anvil::Widgets::InputEditor do
       e.columns_before_cursor.should eq 2
     end
 
-    it "bewegt sich um ein sichtbares Zeichen, auch bei mehreren Codepoints" do
+    it "moves by one visible character even across several codepoints" do
       e = editor
       e.set_text("é")
       e.cursor.should eq 1
@@ -139,18 +139,18 @@ describe Anvil::Widgets::InputEditor do
       e.text.should eq ""
     end
 
-    it "scrollt horizontal und hält den Cursor im Feld" do
+    it "scrolls horizontally and keeps the cursor inside the field" do
       e = editor
       type(e, "abcdefghij")
       line, col = e.view(5)
-      # Der Cursor steht hinter dem letzten Zeichen und muss selbst noch ins
-      # Feld passen — also bleibt die letzte Spalte für ihn frei.
+      # The cursor sits past the last character and has to fit into the field
+      # itself — so the last column stays free for it.
       Text.plain(line).should eq "ghij"
       col.should eq 4
       col.should be < 5
     end
 
-    it "scrollt zurück, wenn der Cursor nach links wandert" do
+    it "scrolls back when the cursor moves left" do
       e = editor
       type(e, "abcdefghij")
       8.times { e.handle(special(Termisu::Input::Key::Left)) }
@@ -159,7 +159,7 @@ describe Anvil::Widgets::InputEditor do
       col.should eq 2
     end
 
-    it "scrollt nicht, solange alles passt" do
+    it "does not scroll while everything fits" do
       e = editor
       type(e, "abc")
       line, col = e.view(10)

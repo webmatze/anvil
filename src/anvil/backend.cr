@@ -2,14 +2,13 @@ require "termisu"
 require "log"
 
 module Anvil
-  # Terminal, Eingabe und Ereignisschleife — der Teil, den sich beide
-  # Betriebsarten teilen.
+  # Terminal, input and event loop — the part both modes share.
   #
-  # termisus Fassade (`Termisu.new`) täte fast dasselbe, betritt aber im
-  # Konstruktor bedingungslos den Alternate Screen. Der Inline-Modus braucht
-  # genau das nicht, und zwei verschiedene Ereignisquellen für die zwei
-  # Betriebsarten wären eine Naht, die sich später rächt. Also derselbe
-  # Aufbau wie in der Fassade, nur mit dem Alt-Screen als Schalter.
+  # termisu's facade (`Termisu.new`) would do nearly the same, but its
+  # constructor unconditionally enters the alternate screen. Inline mode needs
+  # exactly not that, and two different event sources for the two modes would
+  # be a seam that bites later. So: the same assembly the facade does, with
+  # the alternate screen as a switch.
   class Backend
     getter terminal : Termisu::Terminal
     getter? alternate_screen : Bool
@@ -31,35 +30,34 @@ module Anvil
       @terminal.enable_raw_mode
       @event_loop.start
       @terminal.enter_alternate_screen if @alternate_screen
-      # Ohne das kommt eingefügter Text als Folge einzelner Tastendrücke an,
-      # nicht unterscheidbar von getipptem — und mehrzeiliges Einfügen löst
-      # dann pro Zeile ein Absenden aus.
+      # Without this, pasted text arrives as a run of individual key presses,
+      # indistinguishable from typing — and a multi-line paste then submits
+      # once per line.
       @terminal.write("\e[?2004h")
       @terminal.flush
 
       install_signal_handlers
     end
 
-    # termisu protokolliert über Crystals `Log`, und dessen Standard-Backend
-    # schreibt nach STDERR — also mitten in unser Bild, sobald stdout und
-    # stderr dasselbe Terminal sind. (Im Benchmark fiel das nicht auf, weil
-    # dort stderr in eine eigene Pipe geht.)
+    # termisu logs through Crystal's `Log`, whose default backend writes to
+    # STDERR — straight into our picture as soon as stdout and stderr share a
+    # terminal. (The benchmark never noticed, because there stderr goes to a
+    # pipe of its own.)
     #
-    # Stummgeschaltet wird gezielt nur `termisu*`, nicht `*`: die Log-Konfiguration
-    # der Anwendung gehört der Anwendung. Wer die Bibliotheksprotokolle sehen
-    # will, setzt TERMISU_LOG_LEVEL — dann übernimmt termisus eigene
-    # Einrichtung und schreibt in eine Datei.
+    # Only `termisu*` is silenced, not `*`: the application's logging
+    # configuration belongs to the application. Anyone who wants the library's
+    # logs sets TERMISU_LOG_LEVEL, and termisu's own setup takes over and
+    # writes them to a file.
     private def silence_library_logs : Nil
       if ENV["TERMISU_LOG_LEVEL"]?
         Termisu::Logging.setup
         return
       end
 
-      # Ein zusätzliches Null-Backend zu binden hilft nicht: Crystals
-      # Bindungen addieren sich, das voreingestellte STDERR-Backend bliebe
-      # bestehen. Stattdessen wird die Schwelle der betroffenen Log-Instanzen
-      # selbst hochgesetzt — das wirkt an der Quelle und lässt die
-      # Log-Einrichtung der Anwendung unangetastet.
+      # Binding an extra null backend does not help: Crystal's bindings add
+      # up, so the default STDERR backend would stay. Raising the level on the
+      # affected log instances themselves does — it works at the source and
+      # leaves the application's logging setup alone.
       Termisu::Log.level = ::Log::Severity::None
       {Termisu::Logs::Terminal, Termisu::Logs::Buffer, Termisu::Logs::Reader,
        Termisu::Logs::Render, Termisu::Logs::Input, Termisu::Logs::Color,
@@ -80,7 +78,7 @@ module Anvil
       @terminal.flush
     end
 
-    # --- Ereignisse ---------------------------------------------------------
+    # --- events -------------------------------------------------------------
 
     def poll(timeout : Time::Span) : Termisu::Event::Any?
       select
@@ -100,9 +98,9 @@ module Anvil
       end
     end
 
-    # Ein Takt für Animationen. Ohne Timer wird nur bei echter Eingabe
-    # geweckt — für eine Inline-App wie smith ist genau das richtig, weil sie
-    # im Leerlauf nichts zu zeichnen hat.
+    # A tick for animation. Without a timer the loop only wakes on real input
+    # — which is exactly right for an inline app like smith, since it has
+    # nothing to draw while idle.
     def enable_timer(interval : Time::Span, *, kernel : Bool = false) : Nil
       disable_timer
       source = if kernel
@@ -122,25 +120,25 @@ module Anvil
     end
 
     private def prepare(event : Termisu::Event::Any) : Termisu::Event::Any
-      # Die Größenänderung muss durch sein, bevor der Aufrufer sie sieht —
-      # sonst adressiert der nächste Zeichenvorgang das alte Raster.
+      # The resize has to be through before the caller sees it, or the next
+      # draw addresses the old grid.
       if event.is_a?(Termisu::Event::Resize)
         @terminal.query_size
       end
       event
     end
 
-    # --- Aufräumen ----------------------------------------------------------
+    # --- cleanup ------------------------------------------------------------
 
-    # termisu trappt nur WINCH: ein INT oder TERM ließe das Terminal im
-    # Raw-Mode zurück, mit unsichtbarem Cursor und ggf. im Alt-Screen. Im
-    # Benchmark nachgemessen; hier geschlossen.
+    # termisu traps only WINCH: an INT or TERM would leave the terminal in raw
+    # mode, with an invisible cursor and possibly in the alternate screen.
+    # Measured in the benchmark; closed here.
     private def install_signal_handlers : Nil
       {Signal::INT, Signal::TERM}.each do |sig|
         sig.trap do
           close
-          # Weitergeben statt schlucken: wer uns abschießt, erwartet, dass
-          # wir sterben — und der Aufrufer soll den richtigen Exit-Code sehen.
+          # Re-raise rather than swallow: whoever kills us expects us to die,
+          # and the caller should see the right exit code.
           sig.reset
           Process.signal(sig, Process.pid)
         end
@@ -148,8 +146,8 @@ module Anvil
       at_exit { close }
     end
 
-    # Idempotent: läuft aus dem Signal-Handler, aus `at_exit` und aus dem
-    # regulären Ende, und jeder dieser Wege kann der erste sein.
+    # Idempotent: it runs from the signal handler, from `at_exit` and from a
+    # normal exit, and any of those paths can be the first.
     def close : Nil
       return if @closed
       @closed = true

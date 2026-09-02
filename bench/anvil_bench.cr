@@ -1,10 +1,10 @@
 require "../src/anvil"
 require "./support/harness"
 
-# Dasselbe Szenario wie die anderen Implementierungen, aber durch
-# `Anvil::Surface::Fullscreen`. Zweck ist nicht der Vergleich mit termisu —
-# darunter liegt ja termisu — sondern die Frage, was die Abstraktion kostet.
-# Weicht das von `bin/termisu` ab, hat die Surface-Schicht Zeit verloren.
+# The same scenario as the other implementations, but through
+# `Anvil::Surface::Fullscreen`. The point is not to compare against termisu —
+# termisu is what sits underneath — but to ask what the abstraction costs.
+# Any divergence from `bin/termisu` is time the surface layer lost.
 config = Bench::Config.new("anvil")
 sync = config.variant != "nosync"
 
@@ -13,8 +13,8 @@ surface = Anvil::Surface::Fullscreen.new(backend)
 stats = Bench::FrameStats.new(config.frames)
 w, h = surface.size
 
-# Stile zwischenspeichern, aus demselben Grund wie im termisu-Benchmark:
-# 10 000 Wertobjekte pro Frame würden den Allokator messen, nicht die Surface.
+# Cache styles, for the same reason as in the termisu benchmark: 10,000 value
+# objects per frame would measure the allocator, not the surface.
 style_cache = Hash(UInt64, Anvil::Text::Style).new
 style_for = ->(fr : UInt8, fg : UInt8, fb : UInt8, br : UInt8, bg : UInt8, bb : UInt8) do
   key = (fr.to_u64 << 40) | (fg.to_u64 << 32) | (fb.to_u64 << 24) |

@@ -9,44 +9,44 @@ end
 
 describe Anvil::Text do
   describe ".width" do
-    it "zählt ASCII als eine Spalte je Zeichen" do
+    it "counts ASCII as one column each" do
       Text.width("hallo").should eq 5
     end
 
-    it "zählt CJK als zwei Spalten" do
+    it "counts CJK as two columns" do
       Text.width("中文").should eq 4
     end
 
-    it "zählt ein Emoji als zwei Spalten, nicht als zwei Zeichen" do
+    it "counts an emoji as two columns, not as two characters" do
       Text.width("🙂").should eq 2
     end
 
-    it "zählt kombinierende Zeichen nicht mit" do
-      # e + combining acute ist ein Grapheme, eine Spalte.
+    it "does not count combining marks" do
+      # e + combining acute is one grapheme, one column.
       Text.width("é").should eq 1
     end
   end
 
   describe ".truncate" do
-    it "lässt kurze Zeilen unangetastet" do
+    it "leaves short lines untouched" do
       line = Text.line("kurz")
       Text.truncate(line, 10).should eq line
     end
 
-    it "schneidet auf die Breite" do
+    it "cuts to the width" do
       Text.plain(Text.truncate(Text.line("abcdefgh"), 3)).should eq "abc"
     end
 
-    it "hält Platz für das Kürzel frei" do
+    it "reserves room for the ellipsis" do
       Text.plain(Text.truncate(Text.line("abcdefgh"), 5, "…")).should eq "abcd…"
     end
 
     it "schneidet nie mitten in ein zweispaltiges Zeichen" do
-      # Bei Breite 3 passt nur ein CJK-Zeichen; das zweite würde überstehen.
+      # At width 3 only one CJK character fits; the second would overhang.
       Text.plain(Text.truncate(Text.line("中文字"), 3)).should eq "中"
     end
 
-    it "schneidet über Span-Grenzen hinweg und behält die Stile" do
+    it "cuts across span boundaries and keeps the styles" do
       line = [Text::Span.new("ab", Text::Style.new(bold: true)),
               Text::Span.new("cdef")]
       cut = Text.truncate(line, 3)
@@ -57,27 +57,27 @@ describe Anvil::Text do
   end
 
   describe ".wrap" do
-    it "lässt passende Zeilen in einem Stück" do
+    it "leaves fitting lines in one piece" do
       plain(Text.wrap(Text.line("kurz genug"), 20)).should eq ["kurz genug"]
     end
 
     it "bricht an Wortgrenzen" do
-      plain(Text.wrap(Text.line("das ist ein test"), 8)).should eq ["das ist", "ein test"]
+      plain(Text.wrap(Text.line("this is a test"), 7)).should eq ["this is", "a test"]
     end
 
-    it "erzeugt nie eine Zeile breiter als erlaubt" do
+    it "never produces a line wider than allowed" do
       lines = Text.wrap(Text.line("alpha beta gamma delta epsilon zeta"), 11)
       lines.each { |l| Text.width(l).should be <= 11 }
     end
 
-    it "trennt ein zu langes Wort hart, statt zu überlaufen" do
+    it "breaks an over-long word hard instead of overflowing" do
       lines = Text.wrap(Text.line("donaudampfschiff"), 6)
       plain(lines).should eq ["donaud", "ampfsc", "hiff"]
       lines.each { |l| Text.width(l).should be <= 6 }
     end
 
-    it "hält ein Wort zusammen, das über eine Span-Grenze geht" do
-      # "Hallo" ist auf zwei Spans verteilt und darf nicht getrennt werden.
+    it "keeps a word together across a span boundary" do
+      # "Hallo" is spread over two spans and must not be split.
       line = [Text::Span.new("Hal", Text::Style.new(bold: true)),
               Text::Span.new("lo Welt")]
       lines = Text.wrap(line, 7)
@@ -86,25 +86,25 @@ describe Anvil::Text do
       lines.first.first.style.bold?.should be_true
     end
 
-    it "rückt Folgezeilen nicht ein" do
+    it "does not indent continuation lines" do
       plain(Text.wrap(Text.line("aaa   bbb"), 4)).should eq ["aaa", "bbb"]
     end
 
-    it "rechnet mit CJK-Breiten statt mit Zeichenzahl" do
+    it "counts CJK widths rather than characters" do
       lines = Text.wrap(Text.line("中文 字体"), 4)
       lines.each { |l| Text.width(l).should be <= 4 }
       plain(lines).should eq ["中文", "字体"]
     end
 
-    it "fasst gleich gestylte Grapheme zu einem Span zusammen" do
-      # Sonst bekäme der Renderer pro Zeichen einen Batch.
+    it "merges equally styled graphemes into one span" do
+      # Otherwise the renderer would get one batch per character.
       lines = Text.wrap(Text.line("donaudampfschiff"), 6)
       lines.first.size.should eq 1
     end
   end
 
   describe Anvil::Text::Style do
-    it "merge lässt den anderen Stil gewinnen und addiert Attribute" do
+    it "merge lets the other style win and adds attributes up" do
       a = Text::Style.new(fg: Text::Palette::INFO, bold: true)
       b = Text::Style.new(fg: Text::Palette::ERROR, italic: true)
       m = a.merge(b)
@@ -113,19 +113,19 @@ describe Anvil::Text do
       m.attr.italic?.should be_true
     end
 
-    it "merge behält, was der andere nicht setzt" do
+    it "merge keeps what the other one does not set" do
       a = Text::Style.new(fg: Text::Palette::INFO)
       a.merge(Text::Style.new(bold: true)).fg.should eq Text::Palette::INFO
     end
   end
 end
 
-describe "Anvil::Text ANSI-Ausgabe" do
-  it "gibt für einen leeren Stil nichts aus" do
+describe "Anvil::Text ANSI output" do
+  it "emits nothing for an empty style" do
     Text::Style::NONE.ansi.should eq ""
   end
 
-  it "fasst Attribute und Farbe in einer Sequenz zusammen" do
+  it "combines attributes and color in one sequence" do
     ansi = Text::Style.new(fg: Text::Color.ansi256(42), bold: true).ansi
     ansi.should start_with "\e["
     ansi.should end_with "m"
@@ -133,53 +133,53 @@ describe "Anvil::Text ANSI-Ausgabe" do
     ansi.should contain "38;5;42"
   end
 
-  it "kennt TrueColor und die Grundfarben" do
+  it "knows true color and the basic colors" do
     Text::Style.new(fg: Text::Color.rgb(1, 2, 3)).ansi.should contain "38;2;1;2;3"
     Text::Style.new(bg: Text::Color.ansi256(7)).ansi.should contain "48;5;7"
   end
 
-  it "setzt zwischen zwei Stilen zurück" do
+  it "resets between two styles" do
     line = [Text::Span.new("a", Text::Style.new(bold: true)),
             Text::Span.new("b", Text::Style.new(dim: true))]
     out = Text.to_ansi(line)
-    # Ohne Rücksetzen bliebe das Bold über dem zweiten Span stehen.
+    # Without a reset the bold would carry over the second span.
     out.should contain "\e[0m"
     out.should end_with "\e[0m"
   end
 
-  it "gibt ohne Farbe reinen Text aus" do
+  it "emits plain text with color off" do
     line = [Text::Span.new("a", Text::Style.new(bold: true)), Text::Span.new("b")]
     Text.to_ansi(line, color: false).should eq "ab"
   end
 
-  it "erzeugt für eine ungestylte Zeile keine Sequenzen" do
+  it "emits no sequences for an unstyled line" do
     Text.to_ansi(Text.line("schlicht")).should eq "schlicht"
   end
 end
 
 describe "Anvil::Text::Style#plain?" do
-  it "ist nur wahr, wenn wirklich nichts gesetzt ist" do
+  it "is true only when nothing at all is set" do
     Text::Style::NONE.plain?.should be_true
     Text::Style.new(fg: Text::Palette::INFO).plain?.should be_false
   end
 
-  it "erkennt auch reine Attribute als nicht schlicht" do
-    # `Attribute` ist ein @[Flags]-Enum mit None = 0; dessen `none?`-Prädikat
-    # ist bei jedem Wert wahr. Wer es benutzt, hält jeden Stil für schlicht.
+  it "recognises attribute-only styles as not plain" do
+    # `Attribute` is a @[Flags] enum with None = 0, whose `none?` predicate is
+    # true for every value. Anyone using it thinks every style is plain.
     Text::Style.new(bold: true).plain?.should be_false
     Text::Style.new(dim: true).plain?.should be_false
     Text::Style.new(reverse: true).plain?.should be_false
   end
 end
 
-describe "Anvil::Text.wrap Randfälle" do
-  it "behandelt eingebettete Zeilenumbrüche als Umbruch" do
-    # Sonst landete das Steuerzeichen in einer Zelle.
+describe "Anvil::Text.wrap edge cases" do
+  it "treats embedded newlines as a break" do
+    # Otherwise the control character would end up in a cell.
     lines = Text.wrap(Text.line("a\nb"), 20)
     lines.map { |l| Text.plain(l) }.should eq ["a", "b"]
   end
 
-  it "trennt Umbrüche auch über Span-Grenzen und behält die Stile" do
+  it "splits on newlines across span boundaries and keeps the styles" do
     bold = Text::Style.new(bold: true)
     line = [Text::Span.new("a\nb", bold), Text::Span.new("c")]
     lines = Text.wrap(line, 20)
@@ -187,16 +187,16 @@ describe "Anvil::Text.wrap Randfälle" do
     lines[1].first.style.bold?.should be_true
   end
 
-  it "erhält Leerzeilen" do
+  it "preserves blank lines" do
     Text.wrap(Text.line("a\n\nb"), 20).map { |l| Text.plain(l) }.should eq ["a", "", "b"]
   end
 
-  it "wirft CR aus CRLF weg" do
+  it "drops the CR from CRLF" do
     Text.wrap(Text.line("a\r\nb"), 20).map { |l| Text.plain(l) }.should eq ["a", "b"]
   end
 
-  it "klemmt eine nicht-positive Breite auf eine Spalte, statt Inhalt zu verlieren" do
-    # Ein Fenster kann während einer Größenänderung kurz 0 Spalten melden.
+  it "clamps a non-positive width to one column instead of losing content" do
+    # A window can briefly report 0 columns during a resize.
     Text.wrap(Text.line("ab"), 0).map { |l| Text.plain(l) }.should eq ["a", "b"]
     Text.wrap(Text.line("ab"), -5).map { |l| Text.plain(l) }.should eq ["a", "b"]
   end
