@@ -1,0 +1,24 @@
+name: anvil
+version: 0.1.0
+
+description: |
+  Terminal-UI-Library für Crystal, mit zwei Betriebsarten: Fullscreen
+  (Alt-Screen, 30/60 fps) und Inline (Scrollback bleibt, nur eine Live-Region
+  am unteren Rand wird neu gezeichnet).
+
+authors:
+  - Mathias Karstaedt <mathias.karstaedt@gmail.com>
+
+crystal: ">= 1.17.0"
+
+license: MIT
+
+dependencies:
+  termisu:
+    github: omarluq/termisu
+
+development_dependencies:
+  crysterm:
+    github: crystallabs/crysterm
+  crystal_tui:
+    github: skuznetsov/crystal_tui

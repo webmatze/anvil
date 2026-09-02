@@ -1,0 +1,4 @@
+/lib/
+/bin/
+/bench/results/
+*.dwarf
