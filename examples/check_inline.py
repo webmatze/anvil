@@ -14,6 +14,9 @@ def capture():
         os.close(master); os.setsid()
         fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
         os.dup2(slave, 0); os.dup2(slave, 1); os.dup2(slave, 2)
+    # Set explicitly rather than inherited: a harness that depends on the
+    # developer's ambient TERM is not reproducible, and a CI runner has none.
+        os.environ["TERM"] = "xterm-256color"
         os.environ["SPIKE_FRAMES"] = "3"
         os.environ["SPIKE_DELAY_MS"] = "10"
         os.execv(os.path.abspath("bin/inline_demo"), ["inline_demo"]); os._exit(127)

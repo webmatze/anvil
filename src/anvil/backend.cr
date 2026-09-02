@@ -13,8 +13,18 @@ module Anvil
     getter terminal : Termisu::Terminal
     getter? alternate_screen : Bool
 
+    # A terminal type to fall back on when the environment names none.
+    #
+    # xterm-256color is the safe guess: near-universally understood, and a
+    # superset of what this library emits.
+    DEFAULT_TERM = "xterm-256color"
+
     def initialize(*, @alternate_screen : Bool = false, sync_updates : Bool = true)
       silence_library_logs
+      # termisu raises when TERM is unset, which turns every container, CI job
+      # and cron run into an unhandled exception at startup. A missing TERM is
+      # a thin environment, not a broken one, so it gets a default instead.
+      ENV["TERM"] = DEFAULT_TERM unless ENV["TERM"]?.presence
       @terminal = Termisu::Terminal.new(sync_updates: sync_updates)
       @reader = Termisu::Reader.new(@terminal.infd)
       @parser = Termisu::Input::Parser.new(@reader)

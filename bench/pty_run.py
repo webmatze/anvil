@@ -27,6 +27,7 @@ def main():
         os.dup2(slave, 0); os.dup2(slave, 1); os.dup2(err_w, 2)
         if slave > 2: os.close(slave)
         os.close(err_w)
+        os.environ.setdefault("TERM", "xterm-256color")
         os.execv(binary, [binary])
         os._exit(127)
 

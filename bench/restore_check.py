@@ -21,6 +21,7 @@ def run(binary, env, interrupt_after=None):
         os.dup2(slave, 0); os.dup2(slave, 1)
         devnull = os.open(os.devnull, os.O_WRONLY); os.dup2(devnull, 2)
         os.environ.update(env)
+        os.environ.setdefault("TERM", "xterm-256color")
         os.execv(binary, [binary]); os._exit(127)
     os.close(slave)
     tail = b""
