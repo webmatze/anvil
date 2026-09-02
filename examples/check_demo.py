@@ -44,6 +44,22 @@ def run(script, rows=24, cols=80, budget=25):
     os.close(master)
     return out
 
+# Prints the verdicts, and on failure the raw output: a check that fails without
+# showing what the program actually produced is one you cannot debug from a CI
+# log — which is exactly where it will fail.
+def report(checks, out):
+    txt = out.decode("utf-8", "replace")
+    print(f"{len(out)} bytes produced\n")
+    ok = True
+    for name, good in checks:
+        print(f"  [{'ok' if good else 'FAIL'}] {name}")
+        ok &= good
+    if not ok:
+        print("\n--- raw output (last 2000 chars, escaped) ---")
+        print(repr(txt[-2000:]))
+    return ok
+
+
 script = [
     (1.0, b"hello danger\r"),   # a turn with a modal question
     (4.0, b"y"),                # approve
@@ -76,9 +92,4 @@ checks = [
     ("ends with a complete line", txt.endswith("\n") or txt.endswith("\r\n")),
 ]
 
-print(f"{len(out)} bytes produced\n")
-ok = True
-for name, good in checks:
-    print(f"  [{'ok' if good else 'FAIL'}] {name}")
-    ok &= good
-sys.exit(0 if ok else 1)
+sys.exit(0 if report(checks, out) else 1)

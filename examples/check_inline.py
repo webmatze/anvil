@@ -32,6 +32,22 @@ def capture():
     os.close(master)
     return buf
 
+# Prints the verdicts, and on failure the raw output: a check that fails without
+# showing what the program actually produced is one you cannot debug from a CI
+# log — which is exactly where it will fail.
+def report(checks, out):
+    txt = out.decode("utf-8", "replace")
+    print(f"{len(out)} bytes produced\n")
+    ok = True
+    for name, good in checks:
+        print(f"  [{'ok' if good else 'FAIL'}] {name}")
+        ok &= good
+    if not ok:
+        print("\n--- raw output (last 2000 chars, escaped) ---")
+        print(repr(txt[-2000:]))
+    return ok
+
+
 def main():
     out = capture()
     txt = out.decode("utf-8", "replace")
@@ -51,7 +67,7 @@ def main():
         last = i
     checks.append(("scrollback complete and in order", ok))
 
-    # Relative Adressierung statt absoluter Cursorpositionierung.
+    # Relative addressing instead of absolute cursor positioning.
     cup = len(re.findall(r"\x1b\[\d+;\d+H", txt))
     rel = len(re.findall(r"\x1b\[\d+[AB]", txt))
     checks.append((f"relative movement used ({rel} CUU/CUD, {cup} absolute CUP)",
@@ -60,11 +76,6 @@ def main():
     checks.append(("cursor visible again at the end", txt.rstrip().endswith("\r") or "\x1b[?25h" in txt[-200:]))
     checks.append(("synchronized output used", "\x1b[?2026h" in txt))
 
-    print(f"{len(out)} bytes produced\n")
-    allok = True
-    for name, good in checks:
-        print(f"  [{'ok' if good else 'FAIL'}] {name}")
-        allok &= good
-    return 0 if allok else 1
+    return 0 if report(checks, out) else 1
 
 sys.exit(main())
