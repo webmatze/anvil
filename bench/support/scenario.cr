@@ -76,7 +76,7 @@ module Bench::Scenario
 
     # Static title bar
     if y == 1
-      title = " crystal_tui bench — dashboard scenario "
+      title = " anvil bench — dashboard scenario "
       ch = (x - 2) < title.size && x >= 2 ? title[x - 2] : ' '
       return Cell.new(ch, 220_u8, 220_u8, 235_u8, 30_u8, 30_u8, 45_u8)
     end
